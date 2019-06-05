@@ -1,5 +1,5 @@
 #pragma once
-#include "MemoryScanner.h"
+#include "MemoryWatcher.h"
 #include "Controller.h"
 
 bool exists_test(const std::string& name);
@@ -33,11 +33,11 @@ public:
     // Returns the output from the model in the following format: 
     // 
     // If there's an error, returns ""
-    bool MakeExchange(MemoryScanner *mem);
+    bool MakeExchange(MemoryWatcher*mem);
 
     // Move the cursor to select the character/stage and start the game
-    bool SelectCharacter(MemoryScanner* mem);
-    bool SelectStage(MemoryScanner* mem);
+    bool SelectCharacter(MemoryWatcher* mem);
+    bool SelectStage(MemoryWatcher* mem);
 
     TensorHandler();
     ~TensorHandler();

@@ -126,7 +126,7 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
 
     printf("%s:%d-T%d\tCreating Memory Watcher!\n",
         FILENM, __LINE__, *ta._pid);
-    MemoryScanner mem = MemoryScanner(ta._dolphinUser);
+    MemoryWatcher mem = MemoryWatcher(ta._dolphinUser);
     if (mem.success == false) {
         fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
             "--ERROR:Failed to initialize Memory Scanner");
@@ -137,9 +137,9 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
     Trainer::cv.notify_all();
     printf("%s:%d-T%d\tPausing to load Menu\n",
         FILENM, __LINE__, *ta._pid);
-    while (mem.CurrentStage() != 3)
+    while (mem.current_Menu != MENU::CHARACTER_SELECT)
     {
-        if (!mem.UpdatedFrame(true))
+        if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
@@ -149,10 +149,10 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
 
     printf("%s:%d-T%d\tSelecting Characters\n",
         FILENM, __LINE__, *ta._pid);
-    while (mem.CurrentStage() == 3)
+    while (mem.current_Menu == MENU::CHARACTER_SELECT)
     {
         //update the frame to find the current cursor pos
-        if (!mem.UpdatedFrame(true))
+        if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
@@ -167,10 +167,10 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
 
     printf("%s:%d-T%d\tSelecting Stage\n",
         FILENM, __LINE__, *ta._pid);
-    while (mem.CurrentStage() == 4)
+    while (mem.current_Menu == MENU::STAGE_SELECT)
     {
         //update the frame to find the current cursor pos
-        if (!mem.UpdatedFrame(true))
+        if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
@@ -183,10 +183,10 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
     }
 
     //wait until the game detects it is currently in game
-    while (mem.CurrentStage() != 1)
+    while (mem.current_Menu != MENU::IN_GAME)
     {
         //update the frame to find the current state
-        if (!mem.UpdatedFrame(true))
+        if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
@@ -197,32 +197,16 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
     // Check mem until we get valid player numbers
     printf("%s:%d-T%d\tChecking for valid player data\n",
         FILENM, __LINE__, *ta._pid);
-
-    bool openPipe = true;
-    int loopLimit = 4, numDots = 50;
-    do
-    {
-        if (!mem.UpdatedFrame(true))
-        {
-            fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
-                "--ERROR:Memory update failed");
-            return;
-        }
-        // Busy print loop
-        if (loopLimit-- == 0)
-        {
-            loopLimit = 4;
-            printf(".");
-        }
-    } while (!mem.print());
+    while (!mem.print())
+        mem.ReadMemory(true);
 
     printf("%s:%d-T%d\tReady for input!\n",
         FILENM, __LINE__, *ta._pid);
     int memory_update;
-    bool openSocket = true;
-    while (*ta._running && openPipe && openSocket && loopLimit--)
+    bool openSocket = true, openPipe = true;
+    while (*ta._running && openPipe && openSocket)
     {
-        if (!mem.UpdatedFrame(false))
+        if (!mem.ReadMemory(false))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");

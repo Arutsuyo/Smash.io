@@ -10,6 +10,8 @@
 #include <string>
 #include <time.h>
 #define FILENM "CTRL"
+#define BUFF_SIZE 1024
+
 
 char Controller::_ButtonNames[] = {
         'A',
@@ -65,62 +67,6 @@ bool createSigPipeAction()
     return true;
 }
 
-bool Controller::sendtofifo(std::string fifocmd)
-{
-    printf("%s:%d Writing to FIFO\n", FILENM, __LINE__);
-    unsigned int buff_sz = strlen(fifocmd.c_str());
-    if (write(fifo_fd, fifocmd.c_str(), buff_sz) < buff_sz)
-    {
-        fprintf(stderr, "%s:%d: %s: %s\n", FILENM, __LINE__,
-            "--ERROR:write", strerror(errno));
-        pipeOpen = false;
-        return false;
-    }
-    return true;
-}
-
-std::string Controller::GetState()
-{
-    char buff[256];
-    std::string output = std::string();
-
-    // Main Stick
-    sprintf(buff, "SET MAIN %.2f %.2f\n", ct.stick[0], ct.stick[0]);
-    output += buff;
-
-    // buttons
-    for (unsigned int i = 0; i < _NUM_BUTTONS; i++)
-    {
-        sprintf(
-            buff,
-            "%s %c \n",
-            ct.buttons[i] ? "PRESS" : "RELEASE",
-            _ButtonNames[i]);
-        output += buff;
-    }
-
-    return output;
-}
-
-bool Controller::SendState()
-{
-    if (!pipeOpen)
-    {
-        fprintf(stderr, "%s:%d: %s\n", FILENM, __LINE__,
-            "--ERROR:Cannot send input, please open pipe");
-        return false;
-    }
-
-    return sendtofifo(GetState());
-}
-
-void Controller::setButton(Button btn)
-{
-    for (int i = 0; i < _NUM_BUTTONS; i++)
-        ct.buttons[i] = i == btn ? true : false;
-
-}
-
 std::string getFileName(const std::string& s) {
 
     char sep = '/';
@@ -137,39 +83,9 @@ std::string getFileName(const std::string& s) {
     return("");
 }
 
-bool Controller::PressStart()
+bool Controller::IsPipeOpen()
 {
-    printf("%s:%d Pressing Start\n", FILENM, __LINE__);
-    char buff[256];
-    std::string output;
-
-    sprintf(buff, "%s %s\n", "PRESS", "Start");
-    output = buff;
-    printf("%s:%d %s %s\n", FILENM, __LINE__,
-        getFileName(pipePath).c_str(), output.c_str());
-    if (!sendtofifo(output))
-        return false;
-    
-    // Sleep for half a second
-    nsleep(500);
-
-    sprintf(buff, "%s %s\n", "PRESS", "Start");
-    output = buff;
-    printf("%s:%d %s %s\n", FILENM, __LINE__,
-        getFileName(pipePath).c_str(), output.c_str());
-
-    return sendtofifo(output);
-}
-
-void Controller::setSticks(float valX, float valY)
-{
-    ct.stick[0] = valX;
-    ct.stick[1] = valY;
-}
-
-void Controller::setControls(Controls inCt)
-{
-    ct = inCt;
+    return pipeOpen;
 }
 
 std::string Controller::GetControllerPath()
@@ -213,9 +129,71 @@ bool Controller::OpenController()
     return true;
 }
 
-bool Controller::IsPipeOpen()
+bool Controller::sendtofifo(char fifocmd[], int limit)
 {
-    return pipeOpen;
+    unsigned int ret = 0, offset = 0;
+    while (offset < limit)
+    {
+        printf("%s:%d To FIFO: %s\n", FILENM, __LINE__, fifocmd + offset);
+        if ((ret = write(fifo_fd, fifocmd + offset, limit - offset)) == -1)
+        {
+            fprintf(stderr, "%s:%d: %s: %s\n", FILENM, __LINE__,
+                "--ERROR:write", strerror(errno));
+            pipeOpen = false;
+            return false;
+        }
+        offset += ret + 1;
+    }
+    return true;
+}
+
+bool Controller::setControls(Controls inCt)
+{
+    char buff[BUFF_SIZE];
+    memset(buff, 0, BUFF_SIZE);
+    int offset = 0, ret = 0;
+
+    // Main Stick
+    ret = sprintf(buff, "SET MAIN %.2f %.2f", inCt.stick[0], inCt.stick[0]);
+    offset += ret + 1;
+
+    // buttons
+    for (unsigned int i = 0; i < _NUM_BUTTONS; i++)
+    {
+        // Don't send repeated state
+        if (ct.buttons[i] == inCt.buttons[i])
+            continue;
+
+        ret = sprintf(buff + offset, "%s %c", 
+            ct.buttons[i] ? "PRESS" : "RELEASE",
+            _ButtonNames[i]);
+        offset += ret + 1;
+    }
+
+    ct = inCt;
+    return sendtofifo(buff, offset);
+}
+
+bool Controller::PressStart()
+{
+    printf("%s:%d Pressing Start\n", FILENM, __LINE__);
+    char buff[BUFF_SIZE];
+    int ret = 0;
+    ret = sprintf(buff, "%s %s", "PRESS", "Start");
+    
+    printf("%s:%d %s %s\n", FILENM, __LINE__,
+        getFileName(pipePath).c_str(), buff);
+    if (!sendtofifo(buff, ret))
+        return false;
+
+    // Sleep for half a second
+    nsleep(500);
+
+    ret = sprintf(buff, "%s %s", "RELEASE", "Start");
+    printf("%s:%d %s %s\n", FILENM, __LINE__,
+        getFileName(pipePath).c_str(), buff);
+
+    return sendtofifo(buff, ret);
 }
 
 Controller::Controller(bool plyr) :

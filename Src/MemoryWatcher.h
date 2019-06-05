@@ -9,7 +9,7 @@ class MemoryWatcher {
 	Player p1;
 	Player p2;
 
-	int socketfd = -1;
+	int m_file;
 
 	std::string userPath;
 
@@ -30,7 +30,7 @@ public:
 
 	// 0: Player1 1: Player2
 	Player GetPlayer(bool pl);
-	bool UpdatedFrame(bool prin);
+	bool ReadMemory(bool prin);
 	bool print();
 
 	MemoryWatcher(std::string s);

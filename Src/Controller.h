@@ -25,36 +25,21 @@ class Controller
     int fifo_fd;
     Controls ct;
 
-    bool sendtofifo(std::string fifocmd);
+    bool sendtofifo(char fifocmd[], int limit);
 
 public:
     // false:Player 1 True:Player2
     bool player;
 
+    // Call before opening, will save path
     bool CreateFifo(std::string inPipePath, int pipe_count);
-    std::string GetControllerPath();
     bool OpenController();
 
-    // This should only be explicitly called for debug use, 
-    // otherwise it's use internally to send the state
-    std::string GetState();
-
-    // Primary call the AI will use to send the state to Dolphin.
-    bool SendState();
-
-    // Sets only the designated button to true, 
-    // all other buttons will be set to false
-    void setButton(Button btn = Button::None);
-    
-    /* setStick
-     * float valX/Y:
-     *  Must be between 0-1. 0.5 is default resting position
-     */
-    void setSticks(float valX = 0.5f, float valY = 0.5f);
-
-    void setControls(Controls inCt);
-
     bool IsPipeOpen();
+    std::string GetControllerPath();
+
+    // Main function to send controls to FIFO
+    bool setControls(Controls inCt);
     bool PressStart();
 
     Controller(bool plyr);

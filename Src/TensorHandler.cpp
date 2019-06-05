@@ -28,7 +28,7 @@ pid_t waitpid(pid_t pid, int* status, int options) {};
 #define FILENM "TH"
 
 /* Helper Functions */
-bool exists_test(const std::string& name) {
+bool exists_test(const std::string & name) {
     if (FILE * file = fopen(name.c_str(), "r")) {
         fclose(file);
         return true;
@@ -152,7 +152,7 @@ bool TensorHandler::CreatePipes(Controller* ai)
         return false;
     }
 
-    if(exists_test("AI/ssbm.h5"))
+    if (exists_test("AI/ssbm.h5"))
         sprintf(buff, "1"); // Load existing file
     else
         sprintf(buff, "0"); // Make a new model
@@ -254,11 +254,10 @@ bool TensorHandler::handleController(std::string tensor)
     }
 
     printf("%s:%d\tSending Controls to Controller\n", FILENM, __LINE__);
-    ctrl->setControls({ sx, sy, ba, bb, by, bz, bl });
-    return ctrl->SendState();
+    return ctrl->setControls({ sx, sy, ba, bb, by, bz, bl });
 }
 
-bool TensorHandler::MakeExchange(MemoryScanner* mem)
+bool TensorHandler::MakeExchange(MemoryWatcher* mem)
 {
     printf("%s:%d\tMaking Exchange\n", FILENM, __LINE__);
     SendToPipe(mem->GetPlayer(ctrl->player), mem->GetPlayer(!ctrl->player));
@@ -270,7 +269,7 @@ bool TensorHandler::MakeExchange(MemoryScanner* mem)
     return handleController(ret);
 }
 
-bool TensorHandler::SelectCharacter(MemoryScanner* mem)
+bool TensorHandler::SelectCharacter(MemoryWatcher* mem)
 {
     Player p = mem->GetPlayer(ctrl->player);
     float sx, sy;
@@ -301,11 +300,11 @@ bool TensorHandler::SelectCharacter(MemoryScanner* mem)
 
     printf("%s:%d\tSending Controls to Controller\n", FILENM, __LINE__);
     ctrl->setControls({ sx, sy, ba, bb, by, bz, bl });
-    ctrl->SendState();
+
     return ba;
 }
 
-bool TensorHandler::SelectStage(MemoryScanner* mem)
+bool TensorHandler::SelectStage(MemoryWatcher* mem)
 {
     Player p = mem->GetPlayer(ctrl->player);
     float sx, sy;
@@ -336,7 +335,7 @@ bool TensorHandler::SelectStage(MemoryScanner* mem)
 
     printf("%s:%d\tSending Controls to Controller\n", FILENM, __LINE__);
     ctrl->setControls({ sx, sy, ba, bb, by, bz, bl });
-    ctrl->SendState();
+
     return ba;
 }
 
