@@ -1,0 +1,1 @@
+The AI models will be placed in this folder, they will eventually be sorted by character. Currently it is only Cpt.Falcon vs Cpt.Falcon.
