@@ -269,15 +269,25 @@ bool TensorHandler::MakeExchange(MemoryWatcher* mem)
     return handleController(ret);
 }
 
-bool TensorHandler::SelectCharacter(MemoryWatcher* mem)
+// Send false for character select and true for stage
+bool TensorHandler::SelectLocation(MemoryWatcher* mem, bool charStg)
 {
     Player p = mem->GetPlayer(ctrl->player);
     float sx, sy;
-    int ba = 0, bb = 0, by = 0, bz = 0, bl = 0;
+    bool ba = false, bb = false, by = false, bz = false, bl = false;
 
     // Get distance
-    float disx = cptFalcon[0] - p.cursor_x;
-    float disy = cptFalcon[1] - p.cursor_y;
+    float disx, disy;
+    if (!charStg)
+    {
+        disx = cptFalcon[0] - p.cursor_x;
+        disy = cptFalcon[1] - p.cursor_y;
+    }
+    else
+    {
+        disx = finalDest[0] - p.cursor_x;
+        disy = finalDest[1] - p.cursor_y;
+    }
 
     // Get Abs
     float absDis = disx < 0 ? -disx : disx;
@@ -296,45 +306,11 @@ bool TensorHandler::SelectCharacter(MemoryWatcher* mem)
         sy = disy > 0 ? 0.75f : 0.25;
 
     if (sx == 0.5f && sy == 0.5f)
-        ba = 1;
+        ba = true;
 
     printf("%s:%d\tSending Controls to Controller\n", FILENM, __LINE__);
-    ctrl->setControls({ sx, sy, ba, bb, by, bz, bl });
-
-    return ba;
-}
-
-bool TensorHandler::SelectStage(MemoryWatcher* mem)
-{
-    Player p = mem->GetPlayer(ctrl->player);
-    float sx, sy;
-    int ba = 0, bb = 0, by = 0, bz = 0, bl = 0;
-
-    // Get distance
-    float disx = finalDest[0] - p.cursor_x;
-    float disy = finalDest[1] - p.cursor_y;
-
-    // Get Abs
-    float absDis = disx < 0 ? -disx : disx;
-    // Within Error?
-    if (absDis < 0.1)
-        sx = 0.5f;
-    else
-        sx = disx > 0 ? 0.75f : 0.25;
-
-    // Get Abs
-    absDis = disy < 0 ? -disy : disy;
-    // Within Error?
-    if (absDis < 0.1)
-        sy = 0.5f;
-    else
-        sy = disy > 0 ? 0.75f : 0.25;
-
-    if (sx == 0.5f && sy == 0.5f)
-        ba = 1;
-
-    printf("%s:%d\tSending Controls to Controller\n", FILENM, __LINE__);
-    ctrl->setControls({ sx, sy, ba, bb, by, bz, bl });
+    if (!ctrl->setControls({ sx, sy, ba, bb, by, bz, bl }) && !ctrl->IsPipeOpen())
+        return false;
 
     return ba;
 }

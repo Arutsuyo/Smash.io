@@ -54,28 +54,85 @@ std::string AIController =
 "C-Stick/Left = `Axis C X - `\n"
 "C-Stick/Right = `Axis C X + `\n";
 
+// These values are pulled from the community provided memory locations 
+// spreadsheet available here: 
+// https://docs.google.com/spreadsheets/d/1JX2w-r2fuvWuNgGb6D3Cs4wHQKLFegZe2jhbBuIhCG8/edit#gid=5
+// The way dolphin parses the locations can be found here:
+// https://github.com/dolphin-emu/dolphin/blob/123bbbca2c3382165cf58288e4d65d0974a9c0db/Source/Core/Core/MemoryWatcher.cpp#L48
+// And an example of how dolphin composes it's memory can be found here: 
+// root/Test Files/mem.cpp
+
+
 std::string memlocation =
-"003F0E0A\n"
-"003F0E2E\n"
-"00453090\n"
-"00453094\n"
-"004530C0\n"
-"004530E0\n"
-"0045310E\n"
-"00453130 8F4\n"
-"00453F20\n"
-"00453F24\n"
-"00453F50\n"
-"00453F70\n"
-"00453F9E\n"
-"00453FC0 8F4\n"
-"00453FC0 E0\n"
-"00479d30\n"
-"00479D60\n"
-"004D6CAD\n"
-"0111826C\n"
-"01118270\n"
-"\n";
+/* 0x80453080 - - - P1 Block - - -	0x00 of P1's static Player Block data. */
+// Each player is 0xE90 apart (goes up to Player 6).
+"453080 40\n" // Facing Direction	Float.
+"453080 60\n" // Stamina HP Lost / Percentage - Currently Displayed 	Short
+"453080 68\n" // Falls	Int
+"453080 8E\n" // Stocks	Byte
+// (Add pointers to this v to index into player)
+/* 0x80453080 0xB0	Pointer to Player Entity (Probably don't need)*/
+"453080 D1C\n" // Total Damage Received	Float.
+"453080 D28\n" // Total Damage Given	Float.
+
+/* 0x80453130 - - - P1 character entity data pointer - - -	Refer to the Char Offset table. Each subsequent player's pointer is stored at +0xE90*/
+"453130 10\n" // Action State	The value at this address indicates the action state of the character.Modifying this alone does nothing.
+"453130 2C\n" // Facing direction	Float. 1 is right, -1 is left
+"453130 80\n" // Horizontal velocity(self - induced)	Float.Changing this will only have an effect if the character is in the air.
+"453130 84\n" // Vertical Velocity(self - induced)	Float.Positive = up, negative = down.Changes when the player jumps / falls of his own accord.Does not kill upward.
+"453130 8C\n" // Horizontal velocity(attack - induced)	Float.Positive = right, negative = left.
+"453130 90\n" // Vertical velocity(attack - induced)	Float.Positive = up, negative = down.Only works when player is in the air.Changes when the player is attacked.Kills upward.
+"453130 B0\n" // X(Horizontal) position	Float.Positive is right, negative is left. 00000000 is center.
+"453130 B4\n" // Y(Vertical) position	Float.Only works when player is in the air.
+"453130 C8\n" // X Delta(Curr - Prev Pos)	Float
+"453130 CC\n" // Y Delta(Curr - Prev Pos)	Float
+"453130 E0\n" // Ground / Air state	0x00000000 on ground,0x00000001 in air.Changing does nothing.
+"453130 894\n" // Action State Frame Counter	Float, resets to 1 with each new action state.
+"453130 1968\n" // Number of jumps used(8 - bit)	Gives more jumps if lowered.
+"453130 198C\n" // Player body state(32 - bit)	0 = normal, 1 = invulnerable, 2 = intangible
+"453130 2114\n" // Smash attack state	2 = charging smash, 3 = attacking with charged smash, 0 = all other times
+"453130 2118\n" // Smash attack charge frame counter
+
+/* 0x80453F10 - - - P2 Block - - - */
+"453F10 40\n" // Facing Direction	Float.
+"453F10 60\n" // Stamina HP Lost / Percentage - Currently Displayed 	Short
+"453F10 68\n" // Falls	Int
+"453F10 8E\n" // Stocks	Byte
+// (Add pointers to this v to index into player)
+/* 0x80453F10 0xB0	Pointer to Player Entity (Probably don't need)*/
+"453F10 D1C\n" // Total Damage Received	Float.
+"453F10 D28\n" // Total Damage Given	Float.
+
+/* 0x80453FC0 - - - P2 character entity data pointer - - - */
+"453FC0 10\n" // Action State	The value at this address indicates the action state of the character.Modifying this alone does nothing.
+"453FC0 2C\n" // Facing direction	Float. 1 is right, -1 is left
+"453FC0 80\n" // Horizontal velocity(self - induced)	Changing this will only have an effect if the character is in the air.
+"453FC0 84\n" // Vertical Velocity(self - induced)	Float.Positive = up, negative = down.Changes when the player jumps / falls of his own accord.Does not kill upward.
+"453FC0 8C\n" // Horizontal velocity(attack - induced)	Float.Positive = right, negative = left.
+"453FC0 90\n" // Vertical velocity(attack - induced)	Float.Positive = up, negative = down.Only works when player is in the air.Changes when the player is attacked.Kills upward.
+"453FC0 B0\n" // X(Horizontal) position	Float.Positive is right, negative is left. 00000000 is center.
+"453FC0 B4\n" // Y(Vertical) position	Float.Only works when player is in the air.
+"453FC0 C8\n" // X Delta(Curr - Prev Pos)	Float
+"453FC0 CC\n" // Y Delta(Curr - Prev Pos)	Float
+"453FC0 E0\n" // Ground / Air state	0x00000000 on ground, 0x00000001 in air.Changing does nothing.
+"453FC0 894\n" // Action State Frame Counter	Float, resets to 1 with each new action state.
+"453FC0 1968\n" // Number of jumps used(8 - bit)	Gives more jumps if lowered.
+"453FC0 198C\n" // Player body state(32 - bit)	0 = normal, 1 = invulnerable, 2 = intangible
+"453FC0 2114\n" // Smash attack state	2 = charging smash, 3 = attacking with charged smash, 0 = all other times
+"453FC0 2118\n" // Smash attack charge frame counter
+
+// Cursor positions (They are stored in opposite player order!?)
+"111826C\n" // P2 Cursor X Position	Floating point ranging from - 35 to 26 (If set outside of the boundaries, moves to closest point within boundaries)
+"1118270\n" // P2 Cursor Y Position	Floating point ranging from - 22 to 25 (If set outside of the boundaries, moves to closest point within boundaries)
+"1118DEC\n" // P1 Cursor X Position	Floating point ranging from - 35 to 26 (If set outside of the boundaries, moves to closest point within boundaries)
+"1118DF0\n" // P1 Cursor Y Position	Floating point ranging from - 22 to 25 (If set outside of the boundaries, moves to closest point within boundaries)
+
+/* 0x8049E6C8 - - -STAGE - - -, 0x778 bytes length (Ends at 0x8049EE3F)*/
+"479d30\n" // Scene Controller 00 = Current major; 01 = Pending major; 02 = Previous major; 03 = Current minor
+"49E6C8 88\n" // Internal Stage ID	See ID lists for Internal Stage ID
+"4D6CAD\n" // Stage Identifier (Can't find it on the spreadsheet, but used in altf4/smashbot)
+
+;
 #pragma endregion UtilStrings
 
 std::string hotkey =

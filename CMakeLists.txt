@@ -10,7 +10,7 @@ IF(CMAKE_BUILD_TYPE MATCHES Debug)
 	add_definitions(-DDEBUG)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 	set(CMAKE_BUILD_TYPE Debug)
-ELSE(CMAKE_BUILD_TYPE MATCHES Release)
+ELSE()
 	message("Release build.")
 ENDIF()
 

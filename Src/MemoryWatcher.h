@@ -17,12 +17,16 @@ class MemoryWatcher {
 
 	bool in_game;
 
+	std::string p1name;
+	std::string p2name;
 
+	FILE* memdumpfd = NULL;
 public:
 	bool success = false;
+	uint32 internal_stage = 0;
 
 	// We load into Character select, we want to detect when that happens
-	int current_Menu = MENU::POSTGAME_SCORES;
+	uint32 current_Menu = MENU::POSTGAME_SCORES;
 
 	// We're not tracking enough to play anywhere else but Final Destination 
 	// so we wanna know when that loads
@@ -33,7 +37,7 @@ public:
 	bool ReadMemory(bool prin);
 	bool print();
 
-	MemoryWatcher(std::string s);
+	MemoryWatcher(std::string s, bool dumpRead = false);
 	~MemoryWatcher();
 
 

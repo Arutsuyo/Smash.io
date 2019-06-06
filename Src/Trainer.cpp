@@ -16,6 +16,7 @@ std::string Trainer::_ssbmisoLocs[] = {
     "/mnt/f/Program Files/Dolphin-x64/iso/ssbm.gcm",
     "/mnt/c/Program Files/Dolphin-x64/iso/ssbm.gcm",
     "/mnt/c/User/Nara/Desktop/Dolphin-x64/iso/ssbm.gcm",
+    "/mnt/c/Users/aruts/OneDrive/UO/CIS 472/Project/ssbm.gcm"
 };
 int Trainer::_isoidx = -1;
 
@@ -95,7 +96,7 @@ bool createSigUSR1Action()
 
 void Trainer::AddToKillList(int pid)
 {
-    killpids.push_back(pid);
+    //killpids.push_back(pid);
 }
 
 void Trainer::KillAllpids()
@@ -140,6 +141,7 @@ void Trainer::runTraining()
     printf("%s:%d\t--Stop the Trainer with CTRL+C\n", FILENM, __LINE__);
     while (!term)
     {
+        cv.notify_all();
         std::unique_lock<std::mutex> lk(mut);
         for (int i = 0; i < numCreate; i++)
         {
@@ -147,6 +149,7 @@ void Trainer::runTraining()
             if (!dh->started)
             {
                 lk.unlock();
+                cv.notify_all();
                 printf("%s:%d\tStarting(0) Dolphin Instance %d\n", FILENM, __LINE__, i);
                 if (!dh->StartDolphin(i))
                 {
@@ -155,6 +158,7 @@ void Trainer::runTraining()
                     break;
                 }
                 printf("%s:%d\tDolphin Instance %d Started(0)\n", FILENM, __LINE__, i);
+                cv.notify_all();
                 lk.lock();
             }
         }
@@ -177,6 +181,7 @@ void Trainer::runTraining()
                 // push a new one
                 DolphinHandle* dh = new DolphinHandle(_vs);
                 lk.unlock();
+                cv.notify_all();
                 printf("%s:%d\tStarting(1) Dolphin Instance %d\n", FILENM, __LINE__, i);
                 if (!dh->StartDolphin(i))
                 {
@@ -186,6 +191,7 @@ void Trainer::runTraining()
                 }
                 printf("%s:%d\tDolphin Instance %d Started(1)\n", FILENM, __LINE__, i);
                 _Dhandles.push_back(dh);
+                cv.notify_all();
                 lk.lock();
             }
         }
@@ -195,26 +201,25 @@ void Trainer::runTraining()
 
         printf("%s:%d\tWaiting for notification\n", FILENM, __LINE__);
         // Lock the mutex and wait for the condition variable
-        cv.wait(lk);
+        cv.wait(lk, []{ return term; });
     }
 }
 
 Trainer::Trainer(VsType vs)
 {
     size_t n = sizeof(_ssbmisoLocs) / sizeof(_ssbmisoLocs[0]);
-
+    printf("%s:%d\tChecking %lu Locations\n", FILENM, __LINE__, n);
     do {
         _isoidx++;
-        if (_isoidx > n)
+        if (_isoidx == n)
         {
             fprintf(stderr, "%s:%d: %s\n", FILENM, __LINE__,
                 "--ERROR:ISO not found");
-            initialized = false;
-            return;
+            exit(EXIT_FAILURE);
         }
         printf("%s:%d\tTesting for ISO:\n\t%s\n", FILENM, __LINE__, _ssbmisoLocs[_isoidx].c_str());
     } while (!exists_test(_ssbmisoLocs[_isoidx]));
-
+    printf("%s:%d\tISO Found: %s\n", FILENM, __LINE__, _ssbmisoLocs[_isoidx].c_str());
 
     _vs = vs;
     if (!cfg)

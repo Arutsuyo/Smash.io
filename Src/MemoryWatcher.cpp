@@ -1,3 +1,5 @@
+#include "MemoryWatcher.h"
+#include "GameState.h"
 #include <errno.h>
 #include <cstring>
 #include <unistd.h>
@@ -13,9 +15,8 @@
 #include <cstdlib>
 #include <sys/stat.h>
 #include <stdint.h>
-#include "MemoryWatcher.h"
-#include "GameState.h"
 #include <algorithm>
+#include <vector>
 #define FILENM "MS"
 
 /* Memory Watcher
@@ -51,13 +52,11 @@ std::string stages[] =
     "YOSHI_STORY",
 };
 
-MemoryWatcher::MemoryWatcher(std::string inUserDir)
+MemoryWatcher::MemoryWatcher(std::string inUserDir, bool dumpRead)
 {
-    /*initialize structs to default/trash values*/
-    p1.health = 1000; p2.health = 1000;
-    p1.dir = 10; p2.dir = 10;
-    p1.pos_y = -1024; p1.pos_x = -1024;
-    p2.pos_y = -1024; p2.pos_x = -1024;
+    // Open the dump file
+    if (dumpRead)
+        memdumpfd = fopen("memdump.txt", "w");
 
     current_stage = -1;
 
@@ -68,6 +67,8 @@ MemoryWatcher::MemoryWatcher(std::string inUserDir)
 }
 
 MemoryWatcher::~MemoryWatcher() {
+    if (memdumpfd)
+        fclose(memdumpfd);
 
     printf("%s:%d\tDestroying MemoryWatcher\n", FILENM, __LINE__);
     /*shutdown the socket*/
@@ -84,32 +85,25 @@ Player MemoryWatcher::GetPlayer(bool pl)
 
 bool MemoryWatcher::print()
 {
-
     /*quick check for all values to be updated before being sent to model*/
-    if (p1.dir == 10 || p2.dir == 10)
+    if (p1.facing == 0 || p2.facing == 0)
     {
         printf("%s:%d\t--Invalid Data: %d:%d\n", FILENM, __LINE__,
-            p1.dir, p2.dir);
+            p1.facing, p2.facing);
         return false;
     }
-    if (p1.pos_x == -1024 || p1.pos_y == -1024)
+    if (p1.pos_x == 0 || p1.pos_y == 0) // Generally you will start opposing
     {
         printf("%s:%d\t--Invalid Data: %f:%f\n", FILENM, __LINE__,
             p1.pos_x, p1.pos_y);
         return false;
     }
-    if (p2.pos_x == -1024 || p2.pos_y == -1024)
-    {
-        printf("%s:%d\t--Invalid Data: %f:%f\n", FILENM, __LINE__,
-            p2.pos_x, p2.pos_y);
-        return false;
-    }
 
     printf("%s:%d\tMemory Scan\n"
-        "\tP1:%u P1:%d P1:%f P1:%f\n", FILENM, __LINE__,
-        p1.health, p1.dir, p1.pos_x, p1.pos_y);
-    printf("\tP2:%u P2:%d P2:%f P2:%f\n",
-        p2.health, p2.dir, p2.pos_x, p2.pos_y);
+        "\tP1:%hi P1:%f P1:%f P1:%f\n", FILENM, __LINE__,
+        p1.percent, p1.facing, p1.pos_x, p1.pos_y);
+    printf("\tP2:%hi P1:%f P1:%f P1:%f\n",
+        p2.percent, p2.facing, p2.pos_x, p2.pos_y);
     return true;
 }
 
@@ -122,7 +116,7 @@ bool MemoryWatcher::init_socket() {
 
 
     /*set up socket*/
-    if ((m_file = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1)
+    if ((m_file = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK, 0)) == -1)
         fprintf(stderr, "%s:%d: %s: %s\n", FILENM, __LINE__,
             "--ERROR:socket", strerror(errno));
 
@@ -144,608 +138,492 @@ bool MemoryWatcher::init_socket() {
 
 bool MemoryWatcher::ReadMemory(bool prin)
 {
-    char buf[128];
-    memset(buf, '\0', 128);
+    int buflen = 128, ret = -1;
+    char* buf = new char[buflen];
+    memset(buf, '\0', buflen);
 
     struct sockaddr remaddr;
     socklen_t addr_len;
     memset(&addr_len, '\0', sizeof(addr_len));
-    recvfrom(m_file, buf, sizeof(buf), 0, &remaddr, &addr_len);
+
+    if ((ret = recvfrom(m_file, buf, sizeof(buf), 0, &remaddr, &addr_len)) == -1)
+    {
+        // Check if the socket is just empty
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            delete buf;
+            return true;
+        }
+
+        // Nope, we error'd
+        delete buf;
+        fprintf(stderr, "%s:%d: %s: %s\n", FILENM, __LINE__,
+            "--ERROR:recvfrom", strerror(errno));
+        return false;
+    }
+
+    if (memdumpfd)
+        fwrite(buf, sizeof(char), strlen(buf), memdumpfd);
+
     std::stringstream ss(buf);
     std::string region, value;
 
+    // Loop here, the buffer reads 2 lines at a time. If the buffer has 
+    // something, then it has 2 things. Message Construction:
+    // https://github.com/dolphin-emu/dolphin/blob/123bbbca2c3382165cf58288e4d65d0974a9c0db/Source/Core/Core/MemoryWatcher.cpp#L77
+    // A demo of it can be found in "Test Files/mem.cpp"
     while (ss.rdbuf()->in_avail())
     {
         std::getline(ss, region, '\n');
         std::getline(ss, value, '\n');
-        unsigned int value_int;
+        uint32 value_int;
 
+        // Get the base address
+        std::size_t found = region.find(" ");
         //Is this a followed pointer?
         std::size_t found = region.find(" ");
+
+        // See if this is a global address
         if (found != std::string::npos)
         {
             std::string ptr = region.substr(found + 1);
             std::string base = region.substr(0, found);
-            unsigned int ptr_int = std::stoul(ptr.c_str(), nullptr, 16);
-            unsigned int base_int = std::stoul(base.c_str(), nullptr, 16);
+            uint32 ptr_int = std::stoul(ptr.c_str(), nullptr, 16);
+            uint32 base_int = std::stoul(base.c_str(), nullptr, 16);
 
-            ////Player one
-            //if (base_int == 0x453130)
-            //{
-            //    switch (ptr_int)
-            //    {
-            //        //Action
-            //    case 0x70:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        m_state->m_memory->player_one_action = value_int;
-            //        break;
-            //    }
-            //    //Action counter
-            //    case 0x20CC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        m_state->m_memory->player_one_action_counter = value_int;
-            //        break;
-            //    }
-            //    //Action frame
-            //    case 0x8F4:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_action_frame = x;
-            //        break;
-            //    }
-            //    //Invulnerable
-            //    case 0x19EC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        if (value_int == 0)
-            //        {
-            //            m_state->m_memory->player_one_invulnerable = false;
-            //        }
-            //        else
-            //        {
-            //            m_state->m_memory->player_one_invulnerable = true;
-            //        }
-            //        break;
-            //    }
-            //    //Hitlag
-            //    case 0x19BC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_hitlag_frames_left = x;
-            //        break;
-            //    }
-            //    //Hitstun
-            //    case 0x23a0:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_hitstun_frames_left = x;
-            //        break;
-            //    }
-            //    //Is charging a smash?
-            //    case 0x2174:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        m_state->m_memory->player_one_action = value_int;
-            //        if (value_int == 2)
-            //        {
-            //            m_state->m_memory->player_one_charging_smash = true;
-            //        }
-            //        else
-            //        {
-            //            m_state->m_memory->player_one_charging_smash = false;
-            //        }
-            //        break;
-            //    }
-            //    //Jumps remaining
-            //    case 0x19C8:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        value_int = value_int >> 24;
-            //        //TODO: This won't work for characters with multiple jumps
-            //        if (value_int > 1)
-            //        {
-            //            value_int = 0;
-            //        }
-            //        m_state->m_memory->player_one_jumps_left = value_int;
-            //        break;
-            //    }
-            //    //Is on ground?
-            //    case 0x140:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        if (value_int == 0)
-            //        {
-            //            m_state->m_memory->player_one_on_ground = true;
-            //        }
-            //        else
-            //        {
-            //            m_state->m_memory->player_one_on_ground = false;
-            //        }
-            //        break;
-            //    }
-            //    //X air speed self
-            //    case 0xE0:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_speed_air_x_self = x;
-            //        break;
-            //    }
-            //    //Y air speed self
-            //    case 0xE4:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_speed_y_self = x;
-            //        break;
-            //    }
-            //    //X attack
-            //    case 0xEC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_speed_x_attack = x;
-            //        break;
-            //    }
-            //    //Y attack
-            //    case 0xF0:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_speed_y_attack = x;
-            //        break;
-            //    }
-            //    //x ground self
-            //    case 0x14C:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_one_speed_ground_x_self = x;
-            //        break;
-            //    }
-            //    default:
-            //    {
-            //        std::cout << "WARNING: Got an unexpected memory pointer: " << ptr_int << std::endl;
-            //    }
-            //    }
-            //}
-            ////Player two
-            //else if (base_int == 0x453FC0)
-            //{
-            //    switch (ptr_int)
-            //    {
-            //        //Action
-            //    case 0x70:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        m_state->m_memory->player_two_action = value_int;
-            //        break;
-            //    }
-            //    //Action counter
-            //    case 0x20CC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        m_state->m_memory->player_two_action_counter = value_int;
-            //        break;
-            //    }
-            //    //Action frame
-            //    case 0x8F4:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_action_frame = x;
-            //        break;
-            //    }
-            //    //Invulnerable
-            //    case 0x19EC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        if (value_int == 0)
-            //        {
-            //            m_state->m_memory->player_two_invulnerable = false;
-            //        }
-            //        else
-            //        {
-            //            m_state->m_memory->player_two_invulnerable = true;
-            //        }
-            //        break;
-            //    }
-            //    //Hitlag
-            //    case 0x19BC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_hitlag_frames_left = x;
-            //        break;
-            //    }
-            //    //Hitstun
-            //    case 0x23a0:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_hitstun_frames_left = x;
-            //        break;
-            //    }
-            //    //Is charging a smash?
-            //    case 0x2174:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        m_state->m_memory->player_two_action = value_int;
-            //        if (value_int == 2)
-            //        {
-            //            m_state->m_memory->player_two_charging_smash = true;
-            //        }
-            //        else
-            //        {
-            //            m_state->m_memory->player_two_charging_smash = false;
-            //        }
-            //        break;
-            //    }
-            //    //Jumps remaining
-            //    case 0x19C8:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        value_int = value_int >> 24;
-            //        //TODO: This won't work for characters with multiple jumps
-            //        if (value_int > 1)
-            //        {
-            //            value_int = 0;
-            //        }
-            //        m_state->m_memory->player_two_jumps_left = value_int;
-            //        break;
-            //    }
-            //    //Is on ground?
-            //    case 0x140:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        if (value_int == 0)
-            //        {
-            //            m_state->m_memory->player_two_on_ground = true;
-            //        }
-            //        else
-            //        {
-            //            m_state->m_memory->player_two_on_ground = false;
-            //        }
-            //        break;
-            //    }
-            //    //X air speed self
-            //    case 0xE0:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_speed_air_x_self = x;
-            //        break;
-            //    }
-            //    //Y air speed self
-            //    case 0xE4:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_speed_y_self = x;
-            //        break;
-            //    }
-            //    //X attack
-            //    case 0xEC:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_speed_x_attack = x;
-            //        break;
-            //    }
-            //    //Y attack
-            //    case 0xF0:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_speed_y_attack = x;
-            //        break;
-            //    }
-            //    //x ground self
-            //    case 0x14C:
-            //    {
-            //        value_int = std::stoul(value.c_str(), nullptr, 16);
-            //        unsigned int* val_ptr = &value_int;
-            //        float x = *((float*)val_ptr);
-            //        m_state->m_memory->player_two_speed_ground_x_self = x;
-            //        break;
-            //    }
-            //    default:
-            //    {
-            //        std::cout << "WARNING: Got an unexpected memory pointer: " << ptr_int << std::endl;
-            //    }
-            //    }
-            //}
-            //else
-            //{
-
-            if (prin)
-                std::cout <<
-                "WARNING: Got an unexpected memory base pointer: " <<
-                base << ":" << ptr << std::endl;
-            //}
-        }
-        //If not, it's a direct pointer
-        else
-        {
-            unsigned int region_int = std::stoul(region.c_str(), nullptr, 16);
-            switch (region_int)
+            // Figure out what base we're parsing
+            switch (base_int)
             {
-                //Frame
-            /*case 0x479D60:
+            case P1CHAR:
+            case P2CHAR:
             {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                m_state->m_memory->frame = value_int;
-                break;
-            }*/
-            //Player 1 percent
-            case 0x4530E0:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                value_int = value_int >> 16;
-                p1.health = value_int;
-                //m_state->m_memory->player_one_percent = value_int;
-                if (prin)
-                    printf("%s:%d\tP1.health = %u\n", FILENM, __LINE__, value_int);
-                break;
-            }
-            //Player 2 percent
-            case 0x453F70:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                value_int = value_int >> 16;
-                p2.health = value_int;
-                //m_state->m_memory->player_two_percent = value_int;
-                if (prin)
-                    printf("%s:%d\tP2.health = %u\n", FILENM, __LINE__, value_int);
-                break;
-            }
-            ////Player 1 stock
-            //case 0x45310E:
-            //{
-            //    value_int = std::stoul(value.c_str(), nullptr, 16);
-            //    value_int = value_int >> 24;
-            //    m_state->m_memory->player_one_stock = value_int;
-
-            //    break;
-            //}
-            ////Player 2 stock
-            //case 0x453F9E:
-            //{
-            //    value_int = std::stoul(value.c_str(), nullptr, 16);
-            //    value_int = value_int >> 24;
-            //    m_state->m_memory->player_two_stock = value_int;
-            //    break;
-            //}
-            //Player 1 facing
-            case 0x4530C0:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                bool facing = value_int >> 31;
-                p1.dir = facing ? -1 : 1;
-                //m_state->m_memory->player_one_facing = !facing;
-                if (prin)
-                    printf("%s:%d\tP1.dir = %d\n", FILENM, __LINE__, p1.dir);
-                break;
-            }
-            //Player 2 facing
-            case 0x453F50:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                bool facing = value_int >> 31;
-                p2.dir = facing ? -1 : 1;
-                //m_state->m_memory->player_two_facing = !facing;
-                if (prin)
-                    printf("%s:%d\tP1.dir = %d\n", FILENM, __LINE__, p2.dir);
-                break;
-            }
-            //Player 1 x
-            case 0x453090:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p1.pos_x = x;
-                //m_state->m_memory->player_one_x = x;
-                if (prin)
-                    printf("%s:%d\tP1.pos_x = %f\n", FILENM, __LINE__, p1.pos_x);
-                break;
-            }
-            //Player 2 x
-            case 0x453F20:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p2.pos_x = x;
-                //m_state->m_memory->player_two_x = x;
-                if (prin)
-                    printf("%s:%d\tP2.pos_x = %f\n", FILENM, __LINE__, p2.pos_x);
-                break;
-            }
-            //Player 1 y
-            case 0x453094:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p1.pos_y = x;
-                //m_state->m_memory->player_one_y = x;
-                if (prin)
-                    printf("%s:%d\tP1.pos_y = %f\n", FILENM, __LINE__, p1.pos_y);
-                break;
-            }
-            //Player 2 y
-            case 0x453F24:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p2.pos_y = x;
-                //m_state->m_memory->player_two_y = x;
-                if (prin)
-                    printf("%s:%d\tP2.pos_y = %f\n", FILENM, __LINE__, p2.pos_y);
-                break;
-            }
-            ////Player one character
-            //case 0x3F0E0A:
-            //{
-            //    value_int = std::stoul(value.c_str(), nullptr, 16);
-            //    value_int = value_int >> 24;
-            //    m_state->m_memory->player_one_character = value_int;
-            //    break;
-            //}
-            ////Player two character
-            //case 0x3F0E2E:
-            //{
-            //    value_int = std::stoul(value.c_str(), nullptr, 16);
-            //    value_int = value_int >> 24;
-            //    m_state->m_memory->player_two_character = value_int;
-            //    break;
-            //}
-            //Menu state
-            case 0x479d30:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                value_int &= 0x000000FF;
-                current_Menu = value_int;
-                //m_state->m_memory->menu_state = value_int;
-                if (prin)
-                    printf("%s:%d\tCurrent Menu = %s\n", FILENM, __LINE__,
-                        menus[current_Menu].c_str());
-                break;
-            }
-            //Stage
-            case 0x4D6CAD:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                value_int = value_int >> 16;
-                current_stage = value_int;
-                //m_state->m_memory->stage = value_int;
-                switch (current_stage)
+                // Get the players we're changing
+                Player* ply = (base_int == P1CHAR) ?
+                    &p1 :&p2;
+                // Figure out what ptr we followed
+                switch (ptr_int)
                 {
-                case 0x18:
-                    if (prin)
-                        printf("%s:%d\tCurrent Stage = %s\n", FILENM, __LINE__,
-                            stages[0].c_str());
+                    //Action
+                case ACTION:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->action_state = value_int;
                     break;
-                case 0x19:
-                    if (prin)
-                        printf("%s:%d\tCurrent Stage = %s\n", FILENM, __LINE__,
-                            stages[1].c_str());
+                    //Action counter
+                case RFACING:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->action_state = val;
                     break;
-                case 0x1a:
-                    if (prin)
-                        printf("%s:%d\tCurrent Stage = %s\n", FILENM, __LINE__,
-                            stages[2].c_str());
+                    // Self Hor Velocity
+                case SHVELO:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->self_h_velocity = val;
                     break;
-                case 0x8:
-                    if (prin)
-                        printf("%s:%d\tCurrent Stage = %s\n", FILENM, __LINE__,
-                            stages[3].c_str());
+                case SVVELO:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->self_v_velocity = val;
                     break;
-                case 0x12:
-                    if (prin)
-                        printf("%s:%d\tCurrent Stage = %s\n", FILENM, __LINE__,
-                            stages[4].c_str());
+                case AHVELO:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->att_h_velocity = val;
                     break;
-                case 0x6:
-                    if (prin)
-                        printf("%s:%d\tCurrent Stage = %s\n", FILENM, __LINE__,
-                            stages[5].c_str());
+                case AVVELO:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->att_v_velocity = val;
+                    break;
+                case XPOS:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->pos_x = val;
+                    break;
+                case YPOS:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->pos_y = val;
+                    break;
+                case XDELTA:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->delta_x = val;
+                    break;
+                case YDELTA:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->delta_y = val;
+                    break;
+                case GROUND:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->onGround = value_int == 0 ? true : false;
+                    break;
+                case ACTIONCOUNTER:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->action_frame_count = val;
+                    break;
+                case JUMPS:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->times_jumped = value_int;
+                    break;
+                case BSTATE:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->body_state = value_int;
+                    break;
+                case SMASHSTATE:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->smash_state = value_int;
+                    break;
+                case SMASHCOUNT:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->smash_frame_counter = value_int;
                     break;
                 default:
-                    if (prin)
-                        printf("%s:%d\tCurrent Stage = %s\n", FILENM, __LINE__,
-                            "UNKNOWN");
+                    std::cout << "WARNING: Unexpected PCHAR: "
+                        << std::hex << ptr_int << std::endl;
+                } // End ptr switch
+            }// End PCHAR case
+
+            case P1STATIC:
+            case P2STATIC:
+            {
+                // Get the players we're changing
+                Player* ply = (base_int == P1STATIC) ?
+                    &p1 : &p2;
+                // Figure out what ptr we followed
+                switch (ptr_int)
+                {
+                case FACING:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->s_facing = val;
+                    break;
+                case PERCENT:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->percent = value_int;
+                    break;
+                case FALLS:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->falls = value_int;
+                    break;
+                case STOCKS:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    ply->stocks = value_int;
+                    break;
+                case TDR:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->TDR = val;
+                    break;
+                case TDG:
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    ply->TDG = val;
+                    break;
+                default:
+                    std::cout << "WARNING: Unexpected PSTATIC: "
+                        << std::hex << ptr_int << std::endl;
+                } // End ptr
+            } // End PSTATIC
+
+            case STAGEPT:
+            {
+                switch (ptr_int)
+                {
+                case 0x02:
+                    printf("%s:%d\tInternal Stage: Princess Peach's Castle\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x03:
+                    printf("%s:%d\tInternal Stage: Rainbow Cruise\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x04:
+                    printf("%s:%d\tInternal Stage: Kongo Jungle\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x05:
+                    printf("%s:%d\tInternal Stage: Jungle Japes\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x06:
+                    printf("%s:%d\tInternal Stage: Great Bay\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x07:
+                    printf("%s:%d\tInternal Stage: Hyrule Temple\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x08:
+                    printf("%s:%d\tInternal Stage: Brinstar\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x09:
+                    printf("%s:%d\tInternal Stage: Brinstar Depths\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x0A:
+                    printf("%s:%d\tInternal Stage: Yoshi's Story\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x0B:
+                    printf("%s:%d\tInternal Stage: Yoshi's Island\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x0C:
+                    printf("%s:%d\tInternal Stage: Fountain of Dreams\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x0D:
+                    printf("%s:%d\tInternal Stage: Green Greens\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x0E:
+                    printf("%s:%d\tInternal Stage: Corneria\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x0F:
+                    printf("%s:%d\tInternal Stage: Venom\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x10:
+                    printf("%s:%d\tInternal Stage: Pokemon Stadium\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x11:
+                    printf("%s:%d\tInternal Stage: Poke Floats\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x12:
+                    printf("%s:%d\tInternal Stage: Mute City\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x13:
+                    printf("%s:%d\tInternal Stage: Big Blue\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x14:
+                    printf("%s:%d\tInternal Stage: Onett\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x15:
+                    printf("%s:%d\tInternal Stage: Fourside\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x16:
+                    printf("%s:%d\tInternal Stage: Icicle Mountain\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x18:
+                    printf("%s:%d\tInternal Stage: Mushroom Kingdom\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x19:
+                    printf("%s:%d\tInternal Stage: Mushroom Kingdom II\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x1B:
+                    printf("%s:%d\tInternal Stage: Flat Zone\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x1C:
+                    printf("%s:%d\tInternal Stage: Dream Land\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x1D:
+                    printf("%s:%d\tInternal Stage: Yoshi's Island (64)\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                case 0x1E:
+                    printf("%s:%d\tInternal Stage: Kongo Jungle(64)\n", FILENM, __LINE__);
+                    internal_stage = ptr_int;
+                    break;
+                default:
+                    std::cout << "WARNING: Unexpected STAGEPT: "
+                        << std::hex << ptr_int << std::endl;
+                    internal_stage = ptr_int;
+                }// End internal stage
+            }
+                default:
+                    std::cout << "WARNING: Unexpected BASE_PTR: "
+                        << std::hex << base_int << std::endl;
+            }// End BASE+PTR switch
+
+            // Check out Global addresses
+            uint32 region_int = std::stoul(region.c_str(), nullptr, 16);
+            switch (region_int)
+            {
+                // Global frame timer
+                case FRAMETIMER:
+                {
+                    std::cout << "WARNING: NOT IMPLEMENTED FRAMETIMER: "
+                        << std::hex << base_int << std::endl;
+
+                    /*value_int = std::stoul(value.c_str(), nullptr, 16);
+                    m_state->m_memory->frame = value_int;*/
                     break;
                 }
-                break;
-            }
-            //p1 cursor x
-            case 0x01118DEC:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p1.cursor_x = x;
-                //m_state->m_memory->player_two_pointer_x = x;
-                if (prin)
-                    printf("%s:%d\tP1.cursor_x = %f\n", FILENM, __LINE__, p1.cursor_x);
-                break;
-            }
-            //p1 cursor y
-            case 0x01118DF0:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p1.cursor_y = x;
-                //m_state->m_memory->player_two_pointer_y = x;
-                if (prin)
-                    printf("%s:%d\tP1.cursor_y = %f\n", FILENM, __LINE__, p1.cursor_y);
-                break;
-            }
-            //p2 cursor x
-            case 0x0111826C:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p2.cursor_x = x;
-                //m_state->m_memory->player_two_pointer_x = x;
-                if (prin)
-                    printf("%s:%d\tP2.cursor_x = %f\n", FILENM, __LINE__, p2.cursor_x);
-                break;
-            }
-            //p2 cursor y
-            case 0x01118270:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                unsigned int* val_ptr = &value_int;
-                float x = *((float*)val_ptr);
-                p2.cursor_y = x;
-                //m_state->m_memory->player_two_pointer_y = x;
-                if (prin)
-                    printf("%s:%d\tP2.cursor_y = %f\n", FILENM, __LINE__, p2.cursor_y);
-                break;
-            }
-            case 0x003F0E08:
-            {
-                value_int = std::stoul(value.c_str(), nullptr, 16);
-                std::cout << std::hex << "P1: " << value_int << std::endl;
-                break;
-            }
-            }
-        }
+                //Menu state
+                case SCENECTRL:
+                {
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    value_int &= 0x000000FF;
+                    current_Menu = value_int;
+                    break;
+                }
+                //Stage
+                case STAGELOAD:
+                {
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    value_int = value_int >> 16;
+                    current_stage = value_int;
+                    break;
+                }
+                //p1 cursor x
+                case P1CURSORX:
+                {
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    p1.cursor_x = val;
+                    break;
+                }
+                //p1 cursor y
+                case P1CURSORY:
+                {
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    p1.cursor_y = val;
+                    break;
+                }
+                //p2 cursor x
+                case P2CURSORX:
+                {
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    p2.cursor_x = val;
+                    break;
+                }
+                //p2 cursor y
+                case P2CURSORY:
+                {
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    uint32* val_ptr = &value_int;
+                    float val = *((float*)val_ptr);
+                    p2.cursor_y = val;
+                    break;
+                }
+                case P1CHARSELECTED:
+                case P2CHARSELECTED:
+                {
+                    std::string* charnm = (region_int == P1CHARSELECTED) ?
+                        &p1name : &p2name;
+                    value_int = std::stoul(value.c_str(), nullptr, 16);
+                    value_int &= 0x000000FF;
+                    switch (value_int)
+                    {
+                    case 0x00:
+                        *charnm = "Dr.Mario";
+                        break;
+                    case 0x01:
+                        *charnm = "Mario";
+                        break;
+                    case 0x02:
+                        *charnm = "Luigi";
+                        break;
+                    case 0x03:
+                        *charnm = "Bowser";
+                        break;
+                    case 0x04:
+                        *charnm = "Peach";
+                        break;
+                    case 0x05:
+                        *charnm = "Yoshi";
+                        break;
+                    case 0x06:
+                        *charnm = "DK";
+                        break;
+                    case 0x07:
+                        *charnm = "Cpt.Falcon";
+                        break;
+                    case 0x08:
+                        *charnm = "Ganon";
+                        break;
+                    case 0x09:
+                        *charnm = "Falco";
+                        break;
+                    case 0x0A:
+                        *charnm = "Fox";
+                        break;
+                    case 0x0B:
+                        *charnm = "Ness";
+                        break;
+                    case 0x0C:
+                        *charnm = "Ice_Climbers";
+                        break;
+                    case 0x0D:
+                        *charnm = "Kirby";
+                        break;
+                    case 0x0E:
+                        *charnm = "Samus";
+                        break;
+                    case 0x0F:
+                        *charnm = "Zelda";
+                        break;
+                    case 0x10:
+                        *charnm = "Link";
+                        break;
+                    case 0x11:
+                        *charnm = "Y_Link";
+                        break;
+                    case 0x12:
+                        *charnm = "Pichu";
+                        break;
+                    case 0x13:
+                        *charnm = "Pikachu";
+                        break;
+                    case 0x14:
+                        *charnm = "Jiggly";
+                        break;
+                    case 0x15:
+                        *charnm = "Mewtwo";
+                        break;
+                    case 0x16:
+                        *charnm = "Game_Watch";
+                        break;
+                    case 0x17:
+                        *charnm = "Marth";
+                        break;
+                    case 0x18:
+                        *charnm = "Roy";
+                        break;
 
-    }
+                    }
+                    std::cout << std::hex << "P1: " << value_int << std::endl;
+                    break;
+                }
+            }// End Switch
+        }// End Else
+
+    }// End while loop
 
     return true;
-
-    //if (region == "00479D60")
-    //{
-    //    return true;
-    //}
-    //return false;
 }
 
