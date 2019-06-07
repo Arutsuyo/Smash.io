@@ -133,11 +133,17 @@ bool Controller::OpenController()
 
 bool Controller::sendtofifo(char fifocmd[], int limit)
 {
-    unsigned int ret = 0, offset = 0;
+    int ret = 0, offset = 0;
     while (offset < limit)
     {
-        printf("%s:%d To FIFO: %s\n", FILENM, __LINE__, fifocmd + offset);
-        if ((ret = write(fifo_fd, fifocmd + offset, limit - offset)) == -1)
+        int towrite = strlen(fifocmd + offset);
+        if(printfifo)
+            printf("%s:%d To FIFO: %s", FILENM, __LINE__, fifocmd + offset);
+
+        if (towrite + offset > limit)
+            fprintf(stderr, "%s:%d Cannot make the next write: total:%d limit %d\n", FILENM, __LINE__, towrite + offset, limit);
+
+        if ((ret = write(fifo_fd, fifocmd + offset, towrite)) == -1)
         {
             fprintf(stderr, "%s:%d: %s: %s\n", FILENM, __LINE__,
                 "--ERROR:write", strerror(errno));
@@ -165,8 +171,6 @@ bool Controller::setControls(Controls inCt)
         return false;
     }
 
-    printf("%s:%d\tController: Sending Controls\n",
-        FILENM, __LINE__);
     // Main Stick
     float disx = ct.stick[0] - inCt.stick[0],
         disy = ct.stick[1] - inCt.stick[1];
@@ -175,7 +179,8 @@ bool Controller::setControls(Controls inCt)
         absDisy = disy < 0 ? -disy : disy;
     if (absDisx > 0.01 || absDisy > 0.01)
     {
-        ret = sprintf(buff, "SET MAIN %.2f %.2f\n", inCt.stick[0], inCt.stick[0]);
+        ret = sprintf(buff, "SET MAIN %4.4f %4.4f\n", 
+            inCt.stick[0], inCt.stick[1]);
         ct.stick[0] = inCt.stick[0];
         ct.stick[1] = inCt.stick[1];
         offset += ret + 1;
@@ -188,7 +193,7 @@ bool Controller::setControls(Controls inCt)
             continue;
 
         ret = sprintf(buff + offset, "%s %c\n",
-            ct.buttons[i] ? "PRESS" : "RELEASE",
+            inCt.buttons[i] ? "PRESS" : "RELEASE",
             _ButtonNames[i]);
         ct.buttons[i] = inCt.buttons[i];
         offset += ret + 1;
@@ -202,13 +207,11 @@ bool Controller::setControls(Controls inCt)
 
 bool Controller::ButtonPressRelease(std::string btn)
 {
-    printf("%s:%d Pressing Start\n", FILENM, __LINE__);
     char buff[BUFF_SIZE];
     int ret = 0;
+    bool ogfifo = printfifo;
+    printfifo = false;
     ret = sprintf(buff, "%s %s\n", "PRESS", btn.c_str());
-
-    printf("%s:%d %s %s\n", FILENM, __LINE__,
-        getFileName(pipePath).c_str(), buff);
     if (!sendtofifo(buff, ret))
         return false;
 
@@ -216,10 +219,11 @@ bool Controller::ButtonPressRelease(std::string btn)
     nsleep(pipeDelay * 1000);
 
     ret = sprintf(buff, "%s %s\n", "RELEASE", btn.c_str());
-    printf("%s:%d %s %s\n", FILENM, __LINE__,
-        getFileName(pipePath).c_str(), buff);
-
-    return sendtofifo(buff, ret);
+    if (!sendtofifo(buff, ret))
+        return false;
+    
+    printfifo = ogfifo;
+    return true;
 }
 
 Controller::Controller(bool plyr, int frameDelay) :

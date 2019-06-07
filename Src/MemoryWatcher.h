@@ -20,7 +20,22 @@ class MemoryWatcher {
 	std::string p1name;
 	std::string p2name;
 
+#ifdef DEBUG
+	bool dumpmem = false;
 	FILE* memdumpfd = NULL;
+	void debugPrintMem(std::string& region, std::string& value);
+
+	void MemGood();
+	void MemBad();
+	void ExitRead();
+#else
+	void debugPrintMem(std::string& region, std::string& value) {};
+	void MemGood() {};
+	void MemBad() {};
+	void ExitRead() {};
+
+#endif
+
 public:
 	bool success = false;
 	uint32 internal_stage = 0;
@@ -35,6 +50,7 @@ public:
 	// 0: Player1 1: Player2
 	Player GetPlayer(bool pl);
 	bool ReadMemory(bool prin);
+
 	bool print();
 
 	MemoryWatcher(std::string s, bool dumpRead = false);

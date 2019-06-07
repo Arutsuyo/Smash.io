@@ -4,6 +4,8 @@
 #include <cstring>
 #include <sys/wait.h>
 #include <stdio.h>
+#include <fcntl.h> // Non blocking definitions
+#include <unistd.h>
 
 #ifdef WIN32
 // Function definitions here are just because the 
@@ -38,8 +40,9 @@ bool exists_test(const std::string & name) {
     }
 }
 
-float TensorHandler::finalDest[2] = { -16.4, 18.87 };
-float TensorHandler::cptFalcon[2] = { 17.4f, 17.0f };
+float TensorHandler::finalDest[2] = { 6.75, -8.74 };
+float TensorHandler::battlefield[2] = { 0.745, -8.5 };
+float TensorHandler::cptFalcon[2] = { 18.2, 18.29 };
 
 bool TensorHandler::CreatePipes(Controller* ai)
 {
@@ -60,7 +63,7 @@ bool TensorHandler::CreatePipes(Controller* ai)
     }
 
     printf("%s:%d\tCreating Error Pipe\n", FILENM, __LINE__);
-    if (pipe(pipeErrorFromPy) == -1)
+    if (pipe2(pipeErrorFromPy, O_NONBLOCK) == -1)
     {
         fprintf(stderr, "%s:%d\t%s: %s\n", FILENM, __LINE__,
             "--ERROR:Pipe", strerror(errno));
@@ -137,6 +140,12 @@ bool TensorHandler::CreatePipes(Controller* ai)
             "--ERROR:close", strerror(errno));
         exit(EXIT_FAILURE);
     }
+    if (close(pipeErrorFromPy[1]) == -1) // Read end 
+    {
+        fprintf(stderr, "%s:%d\t%s: %s\n", FILENM, __LINE__,
+            "--ERROR:close", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
 
     // Send initialization
@@ -165,26 +174,45 @@ bool TensorHandler::CreatePipes(Controller* ai)
     }
 
     ctrl = ai;
+
+    dumpErrorPipe();
 }
 
 void TensorHandler::dumpErrorPipe()
 {
-    printf("%s:%d\tDumping Error from Pipe\n", FILENM, __LINE__);
-    char buff[BUFF_SIZE];
-    memset(buff, 0, BUFF_SIZE);
+    char buff[BUFF_SIZE * 2];
+    memset(buff, 0, BUFF_SIZE * 2);
     std::string output = "";
     int ret = 0, offset = 0;
-    while (ret >= BUFF_SIZE) // Read might be capped
+
+    while (true)
     {
         // Get the current pipe buffer
-        if ((ret = read(pipeFromPy[0], buff, BUFF_SIZE)) == -1)
+        if ((ret = read(pipeErrorFromPy[0], buff, BUFF_SIZE * 2)) == -1)
         {
-            fprintf(stderr, "ERROR: pipe read failed\n");
-            exit(EXIT_FAILURE);
+            // Check if the socket is just empty
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                return;
+
+            fprintf(stderr, "%s:%d\t%s: %s\n", FILENM, __LINE__,
+                "--ERROR:Error pipe read failed", strerror(errno));
+            return;
+        }
+        if (!ret)
+            break;
+        // step through the gunk until we find the prediction
+        for (int i = 0; i < ret; i += output.size() + 1)
+        {
+            output = &buff[i];
+            fprintf(stderr, "%s:%d\tPyErr(%lu): ", 
+                FILENM, __LINE__, output.size());
+            for (int j = 0; j < output.size(); j+=strlen(output.c_str()) + 1)
+            {
+                fprintf(stderr, "%s", output.c_str() + j);
+            }
+            fprintf(stderr, "\n");
         }
 
-        // Print what was read
-        printf("PyError%d: %s\n", ret, buff);
     }
 }
 
@@ -194,9 +222,11 @@ void TensorHandler::SendToPipe(Player ai, Player enemy)
     // Send input
     char buff[BUFF_SIZE];
     memset(buff, 0, BUFF_SIZE);
-    sprintf(buff, "%u %d %f %f %u %d %f %f\n",
-        ai.health, ai.dir, ai.pos_x, ai.pos_y,
-        enemy.health, enemy.dir, enemy.pos_x, enemy.pos_y);
+
+    sprintf(buff, "%hi %f %f %f %hi %f %f %f\n",
+        ai.percent, ai.facing, ai.pos_x, ai.pos_y,
+        enemy.percent, enemy.facing, enemy.pos_x, enemy.pos_y);
+
     int bytesWritten = strlen(buff);
     if (write(pipeToPy[1], buff, bytesWritten) != bytesWritten)
     {
@@ -204,7 +234,9 @@ void TensorHandler::SendToPipe(Player ai, Player enemy)
             "--ERROR:write", strerror(errno));
     }
 
-    printf("%s:%d\tSent: %s\n", FILENM, __LINE__, buff);
+    printf("%s:%d\tSent: %s", FILENM, __LINE__, buff);
+
+    dumpErrorPipe();
 }
 
 // Scrub through the pipe until we reach the identifier, return that
@@ -213,13 +245,23 @@ std::string TensorHandler::ReadFromPipe()
     char buff[BUFF_SIZE];
     memset(buff, 0, BUFF_SIZE);
     std::string output = "";
-    int ret = 0, offset = 0;
+    int ret = 0, status, offset = 0;
     while (true)
     {
+        ret = waitpid(pid, &status, WNOHANG);
+        if (ret == pid)
+        {
+            fprintf(stderr, "%s:%d\t%s(%d)\n", FILENM, __LINE__,
+                "--ERROR:NO NO TENSORFLOW!!! (Tensor Crashed)", status);
+            dumpErrorPipe();
+            return "";
+        }
+
         // Get the current pipe buffer
         if ((ret = read(pipeFromPy[0], buff, BUFF_SIZE)) == -1)
         {
-            fprintf(stderr, "ERROR: pipe read failed\n");
+            fprintf(stderr, "%s:%d\t%s: %s\n", FILENM, __LINE__,
+                "--ERROR:pipe read failed", strerror(errno));
             exit(EXIT_FAILURE);
         }
 
@@ -232,16 +274,24 @@ std::string TensorHandler::ReadFromPipe()
             output = &buff[i];
             if ((offset = output.find("pred: ")) != std::string::npos)
                 return output.substr(offset); // Add 6 to drop the "pred: "
-        }
+            else
+            {
+                if(!output.size())
+                    continue;
 
-        //We didn't find the droids we're looking for
-        // T.T
+                fprintf(stderr, "%s:%d\t%s(%lu): %s\n", FILENM, __LINE__,
+                    "--TENSOR", output.size(), output.c_str());
+                return ""; // Tensor probably crashed
+            }
+        }
     }
+    dumpErrorPipe();
 }
 
 bool TensorHandler::handleController(std::string tensor)
 {
-    printf("%s:%d\tParsing Tensor Output\n", FILENM, __LINE__);
+    printf("%s:%d\tParsing Tensor Output:\n\t%s\n", 
+        FILENM, __LINE__, tensor.c_str());
     float sx, sy;
     int ba, bb, by, bz, bl;
     // pred: 0.0 1.0 0 0 1 0 0
@@ -266,6 +316,8 @@ bool TensorHandler::MakeExchange(MemoryWatcher* mem)
     if (ret.size() == 0)
         return false;
 
+    dumpErrorPipe();
+
     return handleController(ret);
 }
 
@@ -289,26 +341,41 @@ bool TensorHandler::SelectLocation(MemoryWatcher* mem, bool charStg)
         disy = finalDest[1] - p.cursor_y;
     }
 
-    // Get Abs
-    float absDis = disx < 0 ? -disx : disx;
-    // Within Error?
-    if (absDis < 0.1)
-        sx = 0.5f;
-    else
-        sx = disx > 0 ? 0.75f : 0.25;
+    //printf("%s:%d\tCursor Pos P%d: %4.3f %4.3f dist:%4.3f %4.3f\n", FILENM, __LINE__, ctrl->player ? 2 : 1, p.cursor_x, p.cursor_y, disx, disy);
 
-    // Get Abs
-    absDis = disy < 0 ? -disy : disy;
-    // Within Error?
-    if (absDis < 0.1)
-        sy = 0.5f;
-    else
-        sy = disy > 0 ? 0.75f : 0.25;
+    // Normalize
+    if (disx > 1)
+        disx = 1;
+    else if (disx < -1)
+        disx = -1;
 
-    if (sx == 0.5f && sy == 0.5f)
+    // Scale
+    disx = disx / 2;
+    disx += 0.5;
+
+    // Normalize
+    if (disy > 1)
+        disy = 1;
+    else if (disy < -1)
+        disy = -1;
+
+    // Scale
+    disy = disy / 2;
+    disy += 0.5;
+
+    sx = disx;
+    sy = disy;
+
+    // Get absolute distance from mark
+    float absx = sx - 0.5, absy = sy - 0.5;
+    absx = absx < 0 ? -absx : absx;
+    absy = absy < 0 ? -absy : absy;
+
+    // Are we in a good delta?
+    if (absx < 0.2 && absy < 0.2)
         ba = true;
 
-    printf("%s:%d\tSending Controls to Controller\n", FILENM, __LINE__);
+    //printf("%s:%d\tSending Controls to Controller\n", FILENM, __LINE__);
     if (!ctrl->setControls({ sx, sy, ba, bb, by, bz, bl }) && !ctrl->IsPipeOpen())
         return false;
 
@@ -326,33 +393,44 @@ TensorHandler::~TensorHandler()
 {
     printf("%s:%d\tClosing TensorHandler\n", FILENM, __LINE__);
     // Write closing line to Python
-    printf("%s:%d\tWriting Close\n", FILENM, __LINE__);
-    char buff[BUFF_SIZE];
-    memset(buff, 0, BUFF_SIZE);
-    sprintf(buff, "-1 -1\n");
-    int bytesWritten = strlen(buff);
-    if (write(pipeToPy[1], buff, bytesWritten) != bytesWritten)
+    int status, ret;
+    ret = waitpid(pid, &status, WNOHANG);
+    if (ret == pid)
     {
-        fprintf(stderr, "%s:%d\t%s: %s\n", FILENM, __LINE__,
-            "--ERROR:write", strerror(errno));
+        fprintf(stderr, "%s:%d\t%s(%d)\n", FILENM, __LINE__,
+            "--ERROR:Tensor Crashed", status);
+    }
+    else
+    {
+        printf("%s:%d\tWriting Close\n", FILENM, __LINE__);
+        char buff[BUFF_SIZE];
+        memset(buff, 0, BUFF_SIZE);
+        sprintf(buff, "-1 -1\n");
+        int bytesWritten = strlen(buff);
+        if (write(pipeToPy[1], buff, bytesWritten) != bytesWritten)
+        {
+            fprintf(stderr, "%s:%d\t%s: %s\n", FILENM, __LINE__,
+                "--ERROR:write", strerror(errno));
+        }
+
+        // read from pipe
+        printf("%s:%d\tWaiting for Tensor to signal closing\n", FILENM, __LINE__);
+        // Read back close
+        std::string readbuf;
+        do
+        {
+            readbuf = ReadFromPipe();
+        } while (readbuf.find("-1 -1") == std::string::npos);
+
+
+        printf("%s:%d\tWaiting for Tensor to close\n", FILENM, __LINE__);
+        int status;
+        waitpid(pid, &status, 0);
+        printf("%s:%d\tTensor(%d) closed\n", FILENM, __LINE__, status);
     }
 
-    // read from pipe
-    printf("%s:%d\tWaiting for Tensor to signal closing\n", FILENM, __LINE__);
-    // Read back close
-    std::string readbuf;
-    do
-    {
-        readbuf = ReadFromPipe();
-    } while (readbuf.find("-1 -1") == std::string::npos);
-
-
-    printf("%s:%d\tWaiting for Tensor to close\n", FILENM, __LINE__);
-    int status;
-    waitpid(pid, &status, 0);
-    printf("%s:%d\tTensor(%d) closed\n", FILENM, __LINE__, status);
-
     // close the pipes
+    dumpErrorPipe();
     printf("%s:%d\tShutting Down pipes\n", FILENM, __LINE__);
     close(pipeFromPy[0]);
     close(pipeToPy[1]);

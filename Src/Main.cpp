@@ -7,25 +7,56 @@
 #include <pwd.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 #define FILENM "Main"
 
-int main()
+void ParseArgs(int argc, char* argv[])
 {
-    // Parse Test
-    /*std::string val = "3f800000";
-    val
-    unsigned int val_int = std::stoul(val.c_str(), nullptr, 16);
-    printf("Test val:%d\n", val_int);
-    exit(EXIT_SUCCESS);*/
+    printf("%s:%d Parsing Arguments\n", FILENM, __LINE__);
+    for (int i = 0; i < argc; i++)
+    {
+        std::string arg = argv[i];
+        unsigned long size = 0;
+        
+        // Number of threads to spawn
+        if ((size = arg.find("-t:")) != std::string::npos)
+        {
+            // is it one argument or 2?
+            if (arg.size() > size)
+            {
+                Trainer::Concurent =
+                    std::stoi(arg.substr(size));
+                printf("%s:%d Concurrent Threads: %d\n", FILENM, __LINE__,
+                    Trainer::Concurent);
+            }
+            else
+            {
+                i++; 
+                Trainer::Concurent =
+                    std::stoi(argv[i]);
+                printf("%s:%d Concurrent Threads: %d\n", FILENM, __LINE__,
+                    Trainer::Concurent);
+            }
+            continue;
+        }
 
+        //
+
+    }
+}
+
+int main(int argc, char *argv[])
+{
     printf("%s:%d Initializing statics\n", FILENM, __LINE__);
     // Init the static user dir
     struct passwd* pw = getpwuid(getuid());
     Trainer::userDir = pw->pw_dir;
     Trainer::dolphinDefaultUser = Trainer::userDir + "/.local/share/dolphin-emu/";
-    Trainer::concurentThreadsSupported =
+    Trainer::Concurent =
         std::thread::hardware_concurrency() / 3;
     Trainer::term = false;
+
+    ParseArgs(argc, argv);
 
     printf("%s:%d Creating Trainer\n", FILENM, __LINE__);
     Trainer trainer(VsType::Human);

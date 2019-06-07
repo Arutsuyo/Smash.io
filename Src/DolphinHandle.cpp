@@ -67,7 +67,7 @@ std::string DolphinHandle::AddController(int player, int pipe_count, std::string
     return Trainer::cfg->getAIPipeConfig(player, pipe_count, id);
 }
 
-void DolphinHandle::dolphin_thread(ThreadArgs* targ)
+bool DolphinHandle::dolphin_thread(ThreadArgs* targ)
 {
     printf("%s:%d-T\tThread Started\n", FILENM, __LINE__);
     ThreadArgs ta = *targ;
@@ -86,7 +86,7 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
 
         fprintf(stderr, "%s:%d-T\t%s: %s\n", FILENM, __LINE__,
             "--ERROR:execlp", strerror(errno));
-        exit(EXIT_FAILURE);
+        return false;
     } // child will not exit this block
 
     // Parent Code
@@ -97,7 +97,7 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
         fprintf(stderr, "%s:%d-T\t%s: %s\n", FILENM, __LINE__,
             "--ERROR:execlp", strerror(errno));
         *ta._running = false;
-        return;
+        return false;
     }
 
     printf("%s:%d-T%d\tChild successfully launched\n",
@@ -116,7 +116,7 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
         {
             *ta._running = false;
             Trainer::cv.notify_all();
-            return;
+            return false;
         }
         printf("%s:%d-T%d\tLinking Controller with Tensor\n",
             FILENM, __LINE__, *ta._pid);
@@ -127,12 +127,12 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
 
     printf("%s:%d-T%d\tCreating Memory Watcher!\n",
         FILENM, __LINE__, *ta._pid);
-    MemoryWatcher mem = MemoryWatcher(ta._dolphinUser);
+    MemoryWatcher mem = MemoryWatcher(ta._dolphinUser, true);
     if (mem.success == false) {
         fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
             "--ERROR:Failed to initialize Memory Scanner");
         Trainer::cv.notify_all();
-        return;
+        return false;
     }
 
     // Do Input
@@ -140,29 +140,66 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
     printf("%s:%d-T%d\tPausing to load Menu\n",
         FILENM, __LINE__, *ta._pid);
     //wait until the character stage is detected
-    while (mem.current_Menu != MENU_STAGE::CHARACTER_SELECT && *ta._running)
+    int loop = 0, loopLim = 1000;
+    TPoint lastSent = std::chrono::high_resolution_clock::now();
+    while (mem.current_Menu != CHARACTER_SELECT && *ta._running)
     {
+        if (loop++ == loopLim)
+        {
+            loop = 0;
+
+            std::chrono::duration<double> elapsed =
+                std::chrono::high_resolution_clock::now()
+                - lastSent;
+            if (elapsed.count() > 3) // wait for 3 seconds
+            {
+                lastSent = std::chrono::high_resolution_clock::now();
+                printf("%s:%d-T%d\t%dPausing to load Menu(%d): %d\n",
+                    FILENM, __LINE__, *ta._pid, *ta._running ? 1 : 0,
+                    mem.current_Menu, CHARACTER_SELECT);
+            }
+        }
+
         //update the frame to find the current state
-        if (!mem.ReadMemory(false))
+        if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
             Trainer::cv.notify_all();
-            return;
+            return false;
         }
     }
+    if (CheckClose(ta))
+        return false;
+
 
     printf("%s:%d-T%d\tSelecting Characters\n",
         FILENM, __LINE__, *ta._pid);
-    while (mem.current_Menu != MENU_STAGE::STAGE_SELECT && *ta._running)
+    while (mem.current_Menu != STAGE_SELECT && *ta._running)
     {
+        if (loop++ == loopLim)
+        {
+            loop = 0;
+
+            std::chrono::duration<double> elapsed =
+                std::chrono::high_resolution_clock::now()
+                - lastSent;
+            if (elapsed.count() > 3) // wait for 3 seconds
+            {
+                lastSent = std::chrono::high_resolution_clock::now();
+                printf("%s:%d-T%d\tSelecting Characters(%d): %d\n",
+                    FILENM, __LINE__, *ta._pid,
+                    mem.current_Menu, STAGE_SELECT);
+            }
+        }
+
         //update the frame to find the current cursor pos
         if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
             Trainer::cv.notify_all();
-            return;
+            return false;
         }
         bool selected = true;
         for (int i = 0; i < tHandles.size(); i++)
@@ -170,28 +207,68 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
         if (selected)
             (*ta._controllers).back()->ButtonPressRelease("START");
     }
+    if (CheckClose(ta))
+        return false;
 
     printf("%s:%d-T%d\tSelecting Stage\n",
         FILENM, __LINE__, *ta._pid);
-    while (mem.current_Menu != MENU_STAGE::IN_GAME && *ta._running)
+    while (mem.current_Menu != IN_GAME && *ta._running)
     {
+        if (loop++ == loopLim)
+        {
+            loop = 0;
+
+            std::chrono::duration<double> elapsed =
+                std::chrono::high_resolution_clock::now()
+                - lastSent;
+            if (elapsed.count() > 3) // wait for 3 seconds
+            {
+                lastSent = std::chrono::high_resolution_clock::now();
+                printf("%s:%d-T%d\tSelecting Stage(%d): %d\n",
+                    FILENM, __LINE__, *ta._pid,
+                    mem.current_Menu, IN_GAME);
+            }
+        }
+
         //update the frame to find the current cursor pos
-        if (!mem.ReadMemory(false))
+        if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
             Trainer::cv.notify_all();
-            return;
+            return false;
         }
         if (tHandles[0]->SelectLocation(&mem, true))
-            (*ta._controllers).front()->ButtonPressRelease("START");
+            (*ta._controllers).front()->ButtonPressRelease("A");
     }
+    if (CheckClose(ta))
+        return false;
 
     // Check mem until we get valid player numbers
     printf("%s:%d-T%d\tChecking for valid player data\n",
         FILENM, __LINE__, *ta._pid);
-    while (!mem.print())
-        mem.ReadMemory(false);
+    while (*ta._running && !mem.print())
+    {
+        if (loop++ == loopLim)
+        {
+            loop = 0;
+
+            std::chrono::duration<double> elapsed =
+                std::chrono::high_resolution_clock::now()
+                - lastSent;
+            if (elapsed.count() > 3) // wait for 3 seconds
+            {
+                lastSent = std::chrono::high_resolution_clock::now();
+                printf("%s:%d-T%d\tChecking for valid player data: %d:%f\n",
+                    FILENM, __LINE__, *ta._pid,
+                    mem.GetPlayer(false).facing, mem.GetPlayer(false).pos_x);
+            }
+        }
+
+        mem.ReadMemory(true);
+    }
+    if (CheckClose(ta))
+        return false;
 
     printf("%s:%d-T%d\tReady for input!\n",
         FILENM, __LINE__, *ta._pid);
@@ -199,7 +276,7 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
     bool openSocket = true, openPipe = true;
     while (*ta._running && openPipe && openSocket)
     {
-        if (!mem.ReadMemory(false))
+        if (!mem.ReadMemory(true))
         {
             fprintf(stderr, "%s:%d\t%s\n", FILENM, __LINE__,
                 "--ERROR:Memory update failed");
@@ -210,12 +287,21 @@ void DolphinHandle::dolphin_thread(ThreadArgs* targ)
             openPipe = tHandles[i]->MakeExchange(&mem);
     }
 
+    // Close out
+    *ta._running = false;
+    return CheckClose(ta);
+}
+
+bool DolphinHandle::CheckClose(ThreadArgs& ta)
+{
+    if (*ta._running)
+        return false;
     // Closing, notify the trainer
     printf("%s:%d-T%d: Closing Thread\n",
         FILENM, __LINE__, *ta._pid);
     WaitForDolphinToClose(*ta._pid);
-    *ta._running = false;
     Trainer::cv.notify_all();
+    return true;
 }
 
 bool DolphinHandle::StartDolphin(int lst)
@@ -331,8 +417,6 @@ DolphinHandle::~DolphinHandle()
     else
         printf("%s:%d\tThread is already destroyed\n", FILENM, __LINE__);
 
-    if (targ)
-        delete targ;
     // Call each destructor
     printf("%s:%d\tDestroying %lu Controllers\n", FILENM, __LINE__,
         controllers.size());

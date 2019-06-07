@@ -7,6 +7,8 @@
 
 std::vector<int> Trainer::killpids;
 
+Trainer* Trainer::_inst = NULL;
+
 bool Trainer::term;
 
 Config* Trainer::cfg;
@@ -27,7 +29,7 @@ std::string Trainer::dolphinDefaultUser = "";
 // Used for tracking events in the threads
 std::mutex Trainer::mut;
 std::condition_variable Trainer::cv;
-unsigned Trainer::concurentThreadsSupported;
+unsigned Trainer::Concurent;
 
 /* Helper Functions */
 inline bool exists_test(const std::string& name) {
@@ -47,6 +49,7 @@ void sigint_handle(int val)
 
     printf("%s:%d\tReceived SIGINT, closing trainer\n", FILENM, __LINE__);
     Trainer::term = true;
+    Trainer::_inst->KillDolphinHandles();
 }
 
 bool createSigIntAction()
@@ -105,6 +108,12 @@ void Trainer::KillAllpids()
         kill(killpids[i], 9);
 }
 
+void Trainer::KillDolphinHandles()
+{
+    for (int i = 0; i < _Dhandles.size(); i++)
+        _Dhandles[i]->running = false;
+}
+
 void Trainer::runTraining()
 {
     printf("%s:%d\tInitializing Training.\n", FILENM, __LINE__);
@@ -127,7 +136,7 @@ void Trainer::runTraining()
         break;
     }
 
-    int numCreate = _vs == VsType::Human ? 1 : concurentThreadsSupported;
+    int numCreate = _vs == VsType::Human ? 1 : Concurent;
     //int numCreate = 1;
     printf("%s:%d\tRunning %d Instance%s\n", FILENM, __LINE__, numCreate, numCreate > 1 ? "s" : "" );
     for (int i = 0; i < numCreate; i++)
@@ -201,7 +210,7 @@ void Trainer::runTraining()
 
         printf("%s:%d\tWaiting for notification\n", FILENM, __LINE__);
         // Lock the mutex and wait for the condition variable
-        cv.wait(lk, []{ return term; });
+        cv.wait_for(lk,std::chrono::seconds(5));
     }
 }
 
@@ -229,6 +238,7 @@ Trainer::Trainer(VsType vs)
     }
 
     initialized = true;
+    _inst = this;
 }
 
 Trainer::~Trainer()

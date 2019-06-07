@@ -19,8 +19,9 @@ class Trainer
 
     std::vector<DolphinHandle*> _Dhandles;
     static std::vector<int> killpids;
-
 public:
+    static Trainer* _inst;
+
     static bool term;
     bool initialized;
     static Config* cfg;
@@ -34,7 +35,7 @@ public:
     static std::string dolphinDefaultUser;
 
     // Threading Info
-    static unsigned concurentThreadsSupported;
+    static unsigned Concurent;
     
     static std::mutex mut;
     static std::condition_variable cv;
@@ -42,6 +43,7 @@ public:
     static void AddToKillList(int pid);
     static void KillAllpids();
 
+    void KillDolphinHandles();
     void runTraining();
     Trainer(VsType vs = VsType::Self);
     ~Trainer();

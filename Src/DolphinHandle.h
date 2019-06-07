@@ -28,7 +28,9 @@ class DolphinHandle
     void CopyBaseFiles();
     std::string AddController(int player, int pipe_count, std::string id);
 
-    static void dolphin_thread(ThreadArgs *ta);
+    static bool dolphin_thread(ThreadArgs *ta);
+
+    static bool CheckClose(ThreadArgs& ta);
 
 public:
     bool running;

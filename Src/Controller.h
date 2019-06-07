@@ -33,6 +33,8 @@ class Controller
     double pipeDelay;
     Controls ct;
 
+    bool printfifo = true;
+
     bool sendtofifo(char fifocmd[], int limit);
 
 public:

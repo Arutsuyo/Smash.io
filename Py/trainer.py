@@ -11,6 +11,7 @@ from collections import deque
 import zc.lockfile as lf
 import numpy as np
 from time import sleep
+import random
 """
 Author: Chase M. Craig
 Purpose: For being able to accept input from an application to train a neural network.
@@ -30,9 +31,13 @@ stderr = open(2, "w")
 # as the identifier for the pipe parser. by using "pred: " at the beginning we 
 # can guarantee that we know what to look for
 
+stderr.write('\0' + "GO GO TENSORFLOW!" + '\0')
+stderr.flush()
+
 def debugPrint(msg):
 	stdout.write('\0' + ("pred: " + msg) + '\0')
 	stdout.flush()
+	stderr.flush()
 
 def PipePrint(*vars):
 	vLen = len(vars)
@@ -42,8 +47,10 @@ def PipePrint(*vars):
 			msg += " %s" % str(vars[i])
 		stdout.write('\0' + ("pred: " + msg) + '\0')
 		stdout.flush()
+		stderr.flush()
 
 def getInput(n):
+	stderr.flush()
 	return os.read(0, n).decode("utf-8")
 
 choice = getInput(1)
@@ -60,7 +67,7 @@ except:
 	debugPrint("Unable to import CuDNNLSTM, using fallback of LSTM with tanh activator.\n")
 	
 debugPrint("Initialization: (0) New Model (1) Load Model (2) Load in Prediction-Only\n")
-
+stderr.flush()
 
 class DQN:
 	def __init__(self):
@@ -105,7 +112,7 @@ class DQN:
 			self.game_score = self.game_score + (myHP * .15)
 	def create_model(self):
 		model = Sequential()
-		model.add(fallbackLSTM(30,input_shape=(self.input_size,1), activation='tanh', return_sequences=True))
+		model.add(fallbackLSTM(30,input_shape=(1,8), activation='tanh', return_sequences=True))
 		model.add(Dropout(0.2))
 		model.add(fallbackLSTM(30, activation='tanh'))
 		model.add(Dropout(0.5))
@@ -123,6 +130,11 @@ class DQN:
 		return model
 	def remember(self, state, action, reward, new_state, done):
 		self.memory.append([state, action, reward, new_state, done])
+	def get_real_action(self, action):
+		for y in range(len(self.actions)):
+			x = self.actions[y]
+			if sum([(1 if abs(x[i] - action[i]) >= 0.01 else 0) for i in range(len(action))]) == 0:
+				return y
 	def replay(self):
 		batch_size = 32
 		if len(self.memory) < batch_size:
@@ -130,6 +142,7 @@ class DQN:
 		samples = random.sample(self.memory, batch_size)
 		for sample in samples:
 			state, action, reward, new_state, done = sample
+			action = self.get_real_action(action)
 			target = self.target_model.predict(state)
 			if done:
 				target[0][action] = reward
@@ -172,9 +185,11 @@ if "1" in choice or "2" in choice:
 	debugPrint("Loading model from file...\n")
 	agent = DQN()
 	agent.load_model(export_dir)
+	stderr.flush()
 else:
 	debugPrint("Building model:\n")
 	agent = DQN() # Prebuilds...
+	stderr.flush()
 #agent.test("cool")
 debugPrint("Finished building/loading!\nPlease input data in the form of:\nP1-HP P1-FD P1-X P1-Y P2-HP P2-FD P2-X P2-Y\n")
 
@@ -186,22 +201,27 @@ while True:
 			break
 	except:
 		break
-	action = agent.act(pa) 
+	action = agent.act(np.reshape(np.array(pa), (1,1,8)))
 	# It is 6 values, brute force
 	PipePrint((action[0]+1)/2,(action[1]+1)/2,action[2],action[3],action[4],action[5],action[6])
 	stderr.flush()
 	# Output action....
 	
-	vv = [float(x) for x in input_k.split(" ")] # Cur state!
+	vv = [float(x) for x in input_k.strip().split(" ")] # Cur state!
+	if(len(vv) != 8):
+		stderr.write('\0' + "GO GO TENSORFLOW!" + '\0')
+		stderr.flush()
+		continue
 	if "2" not in choice:
 		reward = agent.get_Score(pa, vv)
-		agent.remember(pa, action, reward, vv, False)
+		agent.remember(np.reshape(np.array(pa), (1,1,8)), action, reward, np.reshape(np.array(vv), (1,1,8)), False)
 		agent.replay()
 		agent.target_train()
 	pa = [x for x in vv]
 	
 if "2" not in choice:
 	# Save!
+	stderr.flush()
 	debugPrint("End of file reached. Saving model.\n")
 	while True:
 		lock = None
