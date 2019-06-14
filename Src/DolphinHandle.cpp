@@ -77,11 +77,13 @@ bool DolphinHandle::dolphin_thread(ThreadArgs* targ)
     // Child
     if (*ta._pid == 0)
     {
+        std::string gcm = Trainer::ssbmOverride.size() ?
+            Trainer::ssbmOverride : Trainer::_ssbmisoLocs[Trainer::_isoidx];
         printf("%s:%d-T\tLaunching Dolphin\n", FILENM, __LINE__);
         execlp("dolphin-emu",
             "-b",
             "-e",
-            Trainer::_ssbmisoLocs[Trainer::_isoidx].c_str(),
+            gcm.c_str(),
             "-u",
             ta._dolphinUser.c_str(),
             NULL);

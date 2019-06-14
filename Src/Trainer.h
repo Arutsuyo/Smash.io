@@ -40,6 +40,7 @@ public:
 
 
     // ISO info
+    static std::string ssbmOverride;
     static std::string _ssbmisoLocs[];
     static unsigned int _isoidx;
 

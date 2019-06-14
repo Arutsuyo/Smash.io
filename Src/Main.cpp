@@ -31,6 +31,8 @@ void ParseArgs(int argc, char* argv[])
 //"\t-gfx <0|1> Turn rendering of dolphin on or off.\n"
 //"\t\tTensorflow uses the GPU to do it's calculations, so turning off the\n"
 //"\t\trendering thread of Dolphin can be a good improvement during training.\n"
+"\t-gcm <path/to/ssbm.gcm> Use this argument to override the default search\n"
+"\t\tlocations. Can be a relative path.\n"
 "\t-t <num_threads> : Specifies the number of dolphin instances\n"
 "\t\tNormal Load: consists of Main + 5(4 if vs human) active threads\n"
 "\t\tOnly increase this if your system can handle it. \n"
@@ -166,6 +168,32 @@ void ParseArgs(int argc, char* argv[])
                 Trainer::Concurent = std::stoi(argv[i]);
                 printf("%s:%d --WARNING::Override: Concurrent Instances: %d\n"
                     "\tTHIS CAN BE PROBLEMATIC FOR SYSTEMS WITH LOW CORE COUNT\n", FILENM, __LINE__, Trainer::Concurent);
+            }
+            continue;
+        }
+
+        // Override User Dir
+        if ((size = arg.find("-gcm:")) != std::string::npos
+            || arg.find("-gcm") != std::string::npos)
+        {
+            // is it one argument or 2?
+            if (arg.size() > size)
+            {
+                Trainer::ssbmOverride = arg.substr(size);
+                printf("%s:%d --Override: gcm location: %s\n", FILENM, __LINE__,
+                    Trainer::ssbmOverride.c_str());
+            }
+            else
+            {
+                i++;
+                if (argc == i)
+                {
+                    fprintf(stderr, "%s:%d GCM Override failed to parse: %s\n", FILENM, __LINE__, "Not enough arguments");
+                    exit(EXIT_FAILURE);
+                }
+                Trainer::ssbmOverride = argv[i];
+                printf("%s:%d --Override: gcm location: %s\n", FILENM, __LINE__,
+                    Trainer::ssbmOverride.c_str());
             }
             continue;
         }

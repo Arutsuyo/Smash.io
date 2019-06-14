@@ -28,6 +28,8 @@ std::string Trainer::_ssbmisoLocs[] = {
 unsigned int Trainer::_isoidx = -1;
 int Trainer::memoryCount = 0;
 
+std::string Trainer::ssbmOverride = "";
+
 // To be filled out in main
 std::string Trainer::userDir = "";
 std::string Trainer::dolphinDefaultUser = "";
@@ -262,20 +264,38 @@ void Trainer::runTraining()
 
 Trainer::Trainer()
 {
-    size_t n = sizeof(_ssbmisoLocs) / sizeof(_ssbmisoLocs[0]);
-    printf("%s:%d\tChecking %lu Locations\n", FILENM, __LINE__, n);
-    do {
-        _isoidx++;
-        if (_isoidx == n)
+    if (ssbmOverride.size())
+    {
+        if (!file_exists(ssbmOverride.c_str()))
         {
             fprintf(stderr, "%s:%d: %s\n", FILENM, __LINE__,
-                "--ERROR:ISO not found");
+                "--ERROR:GCM not found");
             exit(EXIT_FAILURE);
         }
-        printf("%s:%d\tTesting for ISO:\n\t%s\n", FILENM, __LINE__, _ssbmisoLocs[_isoidx].c_str());
-    } while (!file_exists(_ssbmisoLocs[_isoidx].c_str()));
-    printf("%s:%d\tISO Found: %s\n", FILENM, __LINE__, _ssbmisoLocs[_isoidx].c_str());
+        else
+        {
+            printf("%s:%d\tUsing GCM:\n\t%s\n", FILENM, __LINE__, 
+                ssbmOverride.c_str());
+        }
+    }
+    else
+    {
 
+        size_t n = sizeof(_ssbmisoLocs) / sizeof(_ssbmisoLocs[0]);
+        printf("%s:%d\tChecking %lu Locations\n", FILENM, __LINE__, n);
+        do {
+            _isoidx++;
+            if (_isoidx == n)
+            {
+                fprintf(stderr, "%s:%d: %s\n", FILENM, __LINE__,
+                    "--ERROR:GCM not found");
+                exit(EXIT_FAILURE);
+            }
+            printf("%s:%d\tTesting for GCM:\n\t%s\n", FILENM, __LINE__, _ssbmisoLocs[_isoidx].c_str());
+        } while (!file_exists(_ssbmisoLocs[_isoidx].c_str()));
+        printf("%s:%d\tGCM Found: %s\n", FILENM, __LINE__, _ssbmisoLocs[_isoidx].c_str());
+
+    }
     if (!cfg)
     {
         printf("%s:%d\tCreating Config\n", FILENM, __LINE__);
