@@ -1,15 +1,9 @@
 #pragma once
-#include "MemoryWatcher.h"
+#include "MemoryScanner.h"
 #include "Controller.h"
-
-bool exists_test(const std::string& name);
 
 class TensorHandler
 {
-    static float finalDest[2];
-    static float battlefield[2];
-    static float cptFalcon[2];
-
     int pid;
 
     // Pipes: 0 is read, 1 is write
@@ -27,15 +21,19 @@ class TensorHandler
     bool handleController(std::string tensor);
 
 public:
+    static float finalDest[2];
+    static float battlefield[2];
+    static float cptFalcon[2];
+
     // Must be called before exchanges can be made
     bool CreatePipes(Controller* ai);
 
     // Returns the output from the model in the following format: 
     // 
     // If there's an error, returns ""
-    bool MakeExchange(MemoryWatcher*mem);
+    bool MakeExchange(MemoryScanner*mem);
 
-    bool SelectLocation(MemoryWatcher* mem, bool charStg);
+    bool SelectLocation(MemoryScanner* mem, bool charStg);
 
     TensorHandler();
     ~TensorHandler();

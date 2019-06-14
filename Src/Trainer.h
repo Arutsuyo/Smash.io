@@ -5,6 +5,7 @@
 
 #include "Config.h"
 #include "DolphinHandle.h"
+#include "GenerationManager.h"
 #include <vector>
 #include <mutex>
 #include <condition_variable>
@@ -13,10 +14,19 @@
 void sigint_handle(int val);
 bool createSigIntAction();
 
+bool file_exists(const char* path);
+bool dir_exists(const char* path);
+
+enum Pred_Modes
+{
+    LOAD_MODEL = 0,
+    NEW_MODEL = 1,
+    PREDICTION_ONLY = 2,
+    NEW_PREDICTION = 3,
+};
+
 class Trainer
 {
-    VsType _vs = VsType::Self;
-
     std::vector<DolphinHandle*> _Dhandles;
     static std::vector<int> killpids;
 public:
@@ -26,26 +36,32 @@ public:
     bool initialized;
     static Config* cfg;
 
+    static int memoryCount;
+
+
     // ISO info
     static std::string _ssbmisoLocs[];
-    static int _isoidx;
+    static unsigned int _isoidx;
 
     // Directory info
     static std::string userDir;
     static std::string dolphinDefaultUser;
+    
+    // Tensor Info
+    static VsType vs;
+    static std::string PythonCommand;
+    static std::string modelName;
+    static int predictionType;
+    static void GetVersionNumber(std::string& parsed);
 
     // Threading Info
     static unsigned Concurent;
-    
     static std::mutex mut;
     static std::condition_variable cv;
 
-    static void AddToKillList(int pid);
-    static void KillAllpids();
-
     void KillDolphinHandles();
     void runTraining();
-    Trainer(VsType vs = VsType::Self);
+    Trainer();
     ~Trainer();
 };
 

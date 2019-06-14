@@ -1,13 +1,16 @@
 #pragma once
 
 #include "Controller.h"
+#include "TensorHandler.h"
 #include <thread>
 #include <string>
 #include <vector>
 
 struct ThreadArgs
 {
-    bool *_running;
+    bool* _running;
+    bool* _pipes;
+    bool* _safeClose;
     int *_pid;
     std::string _dolphinUser;
     std::vector<Controller*> *_controllers;
@@ -16,7 +19,6 @@ struct ThreadArgs
 class DolphinHandle
 {
     std::thread *t;
-    ThreadArgs* targ;
     int pid;
     std::vector<Controller*> controllers;
     VsType _vs = VsType::Self;
@@ -30,11 +32,14 @@ class DolphinHandle
 
     static bool dolphin_thread(ThreadArgs *ta);
 
-    static bool CheckClose(ThreadArgs& ta);
+    // Thread Helper Functions //
+    static bool ReadMemory(MemoryScanner* mem, bool* running, bool* closeSafe);
+    static bool CheckClose(ThreadArgs& ta, std::vector<TensorHandler*>& tHandles, bool force = false);
 
 public:
     bool running;
     bool started;
+    bool safeclose = false;
 
     bool StartDolphin(int lst);
 

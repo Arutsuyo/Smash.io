@@ -1,4 +1,4 @@
-# Smash.io
+# SSBM.io
 
 ## Required Software ##
 
@@ -30,7 +30,8 @@ Enviroment setup:
 ```
 conda create --name tf-gpu
 conda activate tf-gpu
-conda install tensorflow-gpu keras-gpu h5py zc.lockfile
+conda install tensorflow-gpu keras-gpu h5py zc.lockfile pip
+pip install gspread oauth2client
 ```
 
 You can test the Anaconda enviroment by using:
@@ -75,3 +76,23 @@ cmake ..
 make
 ./SSBM
 ```
+
+### Arguments ###
+These are the main arguments used, more can be found by running with -h:
+`-vs human/self(h/s)` The play type used.
+`-pr <0|1|2|3>` Tensorflow load type: 0=Load Model 1=New Model 2=Prediction Only 3=New model+Prediction Only
+`-p <python_alias>` Specifies command to use then launching tensorflow/keras
+`-t #` The number of instances to run. This should only be used on CPU's with >=8 cores.
+
+## Overview ##
+We communicate with Dolphin in 2 ways:
+- The Memory is read via a socket that is triggered when it detects the Locations.txt file containing the memory addresses we request.
+- We construct named pipes (Only available in Linux/WSL) in the specified folder which dolphin detects and uses as input devices. This is how we send the predicted controls back to dolphin.
+
+Our C++ program uses a Pipe/Fork/Exec chain to launch both Dolphin and Keras (via Python/Anaconda) and handle the communication between the processes. 
+Each instance of DolphinHandler has the given threads/processes:
+- fork() Main Dolphin Process (2 threads) CPU-GPU cores of the main emulator.
+- fork() Python Keras Process (1 per AI, totaling 2 if training with self play) (With cudNN GPU acceleration). This is only active as long as it takes to make a prediction or reshape. The communication with this process is done through pipe()'s for stdin/out/and err.
+- std::thread MemoryScanner. This is a short while loop that will run as long as the socket is open and DolphinHandler is running.
+- std::thread DolphinHandler thread. This handles the communication between all the other threads and tracks Stage/Menu changes.
+- The main thread for the project tracks the status of each DolphinHandler and recycles them when they close, if they close safely. This thread is in a non-busy wait on a conditional variable, for 5 seconds at a time, activating early if one of the DolphinHandler notifies it.

@@ -1,6 +1,7 @@
 #include "Config.h"
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
 #define _GFX_BACKEND "OGL"
 #define _DUAL_CORE_DEFAULT 1
@@ -8,7 +9,6 @@
 #define _FULLSCREEN_DEFAULT false
 #define FILENM "CFG"
 
-#pragma region UtilStrings
 std::string PlayerKeyboard =
 "Device = Xlib/0/Keyboard Mouse\n"
 "Buttons/A = V\n"
@@ -53,95 +53,62 @@ std::string AIController =
 "C-Stick/Left = `Axis C X - `\n"
 "C-Stick/Right = `Axis C X + `\n";
 
-// These values are pulled from the community provided memory locations 
-// spreadsheet available here: 
-// https://docs.google.com/spreadsheets/d/1JX2w-r2fuvWuNgGb6D3Cs4wHQKLFegZe2jhbBuIhCG8/edit#gid=5
-// The way dolphin parses the locations can be found here:
-// https://github.com/dolphin-emu/dolphin/blob/123bbbca2c3382165cf58288e4d65d0974a9c0db/Source/Core/Core/MemoryWatcher.cpp#L48
-// And an example of how dolphin composes it's memory can be found here: 
-// root/Test Files/mem.cpp
+std::string memlocation = 
+// Used
+"004530E0\n" // p1 %
+"00453F70\n" // p2 %
+"004530C0\n" // p1 direction
+"00453F50\n" // p2 direction
+"00453090\n" // p1 xpos
+"00453F20\n" // p2 xpos
+"00453094\n" // p1 ypos
+"00453F24\n" // p2 ypos
+"00453130 70\n" // p1 action state
+"00453130 8F4\n" // p1 action frame
+"00453FC0 70\n" // p2 action state
+"00453FC0 8F4\n" // p2 action frame
+"00479d30\n" // current menu
+"0111826C\n" // p2 cursor x
+"01118270\n" // p2 cursor y
+"01118DEC\n" // p1 cursor x
+"01118DF0\n" // p1 cursor y
+"00c8ee38\n" // stage select x
+"00c8ee50\n" // stage select x
+"00C8EE3C\n" // stage select y
+"00C8EE60\n" // stage select y
 
-
-std::string memlocations =
-/* Character Selection */
-"003F0E0A\n" // Player 1, read 1 byte
-"003F0E2E\n" // Player 2, read 1 byte
-
-/* 0x80453080 - - - P1 Block - - -	0x00 of P1's static Player Block data. */
-// Each player is 0xE90 apart (goes up to Player 6).
-"00453080 40\n" // Facing Direction	Float.
-"00453080 60\n" // Stamina HP Lost / Percentage - Currently Displayed 	Short
-"00453080 68\n" // Falls	Int
-"00453080 8E\n" // Stocks	Byte
-// (Add pointers to this v to index into player)
-/* 0x80453080 0xB0	Pointer to Player Entity (Probably don't need)*/
-"00453080 D1C\n" // Total Damage Received	Float.
-"00453080 D28\n" // Total Damage Given	Float.
-
-/* 0x80453130 - - - P1 character entity data pointer - - -	Refer to the Char Offset table. Each subsequent player's pointer is stored at +0xE90*/
-"00453130 10\n" // Action State	The value at this address indicates the action state of the character.Modifying this alone does nothing.
-"00453130 2C\n" // Facing direction	Float. 1 is right, -1 is left
-"00453130 80\n" // Horizontal velocity(self - induced)	Float.Changing this will only have an effect if the character is in the air.
-"00453130 84\n" // Vertical Velocity(self - induced)	Float.Positive = up, negative = down.Changes when the player jumps / falls of his own accord.Does not kill upward.
-"00453130 8C\n" // Horizontal velocity(attack - induced)	Float.Positive = right, negative = left.
-"00453130 90\n" // Vertical velocity(attack - induced)	Float.Positive = up, negative = down.Only works when player is in the air.Changes when the player is attacked.Kills upward.
-"00453130 B0\n" // X(Horizontal) position	Float.Positive is right, negative is left. 00000000 is center.
-"00453130 B4\n" // Y(Vertical) position	Float.Only works when player is in the air.
-"00453130 C8\n" // X Delta(Curr - Prev Pos)	Float
-"00453130 CC\n" // Y Delta(Curr - Prev Pos)	Float
-"00453130 E0\n" // Ground / Air state	0x00000000 on ground,0x00000001 in air.Changing does nothing.
-"00453130 894\n" // Action State Frame Counter	Float, resets to 1 with each new action state.
-"00453130 1968\n" // Number of jumps used(8 - bit)	Gives more jumps if lowered.
-"00453130 198C\n" // Player body state(32 - bit)	0 = normal, 1 = invulnerable, 2 = intangible
-"00453130 2114\n" // Smash attack state	2 = charging smash, 3 = attacking with charged smash, 0 = all other times
-"00453130 2118\n" // Smash attack charge frame counter
-
-/* 0x80453F10 - - - P2 Block - - - */
-"00453F10 40\n" // Facing Direction	Float.
-"00453F10 60\n" // Stamina HP Lost / Percentage - Currently Displayed 	Short
-"00453F10 68\n" // Falls	Int
-"00453F10 8E\n" // Stocks	Byte
-// (Add pointers to this v to index into player)
-/* 0x80453F10 0xB0	Pointer to Player Entity (Probably don't need)*/
-"00453F10 D1C\n" // Total Damage Received	Float.
-"00453F10 D28\n" // Total Damage Given	Float.
-
-/* 0x80453FC0 - - - P2 character entity data pointer - - - */
-"00453FC0 10\n" // Action State	The value at this address indicates the action state of the character.Modifying this alone does nothing.
-"00453FC0 2C\n" // Facing direction	Float. 1 is right, -1 is left
-"00453FC0 80\n" // Horizontal velocity(self - induced)	Changing this will only have an effect if the character is in the air.
-"00453FC0 84\n" // Vertical Velocity(self - induced)	Float.Positive = up, negative = down.Changes when the player jumps / falls of his own accord.Does not kill upward.
-"00453FC0 8C\n" // Horizontal velocity(attack - induced)	Float.Positive = right, negative = left.
-"00453FC0 90\n" // Vertical velocity(attack - induced)	Float.Positive = up, negative = down.Only works when player is in the air.Changes when the player is attacked.Kills upward.
-"00453FC0 B0\n" // X(Horizontal) position	Float.Positive is right, negative is left. 00000000 is center.
-"00453FC0 B4\n" // Y(Vertical) position	Float.Only works when player is in the air.
-"00453FC0 C8\n" // X Delta(Curr - Prev Pos)	Float
-"00453FC0 CC\n" // Y Delta(Curr - Prev Pos)	Float
-"00453FC0 E0\n" // Ground / Air state	0x00000000 on ground, 0x00000001 in air.Changing does nothing.
-"00453FC0 894\n" // Action State Frame Counter	Float, resets to 1 with each new action state.
-"00453FC0 1968\n" // Number of jumps used(8 - bit)	Gives more jumps if lowered.
-"00453FC0 198C\n" // Player body state(32 - bit)	0 = normal, 1 = invulnerable, 2 = intangible
-"00453FC0 2114\n" // Smash attack state	2 = charging smash, 3 = attacking with charged smash, 0 = all other times
-"00453FC0 2118\n" // Smash attack charge frame counter
-
-// Cursor positions (They are stored in opposite player order!?)
-"0111826C\n" // P2 Cursor X Position	Floating point ranging from - 35 to 26 (If set outside of the boundaries, moves to closest point within boundaries)
-"01118270\n" // P2 Cursor Y Position	Floating point ranging from - 22 to 25 (If set outside of the boundaries, moves to closest point within boundaries)
-"01118DEC\n" // P1 Cursor X Position	Floating point ranging from - 35 to 26 (If set outside of the boundaries, moves to closest point within boundaries)
-"01118DF0\n" // P1 Cursor Y Position	Floating point ranging from - 22 to 25 (If set outside of the boundaries, moves to closest point within boundaries)
-
-/* 0x8049E6C8 - - -STAGE - - -, 0x778 bytes length (Ends at 0x8049EE3F)*/
-"00479D30\n" // Scene Controller 00 = Current major; 01 = Pending major; 02 = Previous major; 03 = Current minor
-"0049E6C8 88\n" // Internal Stage ID	See ID lists for Internal Stage ID
-"004D6CAD\n" // Stage Identifier (Can't find it on the spreadsheet, but used in altf4/smashbot)
-
-//
-
+// Unused
+//"0045310E\n" // p1stock
+//"00453F9E\n" // p2stock
+//"00453130 20CC\n" // p1 action count
+//"00453130 19EC\n" // p1 invicible
+//"00453130 19BC\n" // p1 hitlag
+//"00453130 23a0\n" // p1 hitstun
+//"00453130 2174\n" // p1 charging
+//"00453130 19C8\n" // jumps
+//"00453130 140\n" // grounded
+//"00453130 E0\n" // xair
+//"00453130 E4\n" // yair
+//"00453130 EC\n" // xattackspd
+//"00453130 F0\n" // yattackspd
+//"00453130 14C\n" // knockeddown
+//"00453FC0 20CC\n" // p2 action count
+//"00453FC0 19EC\n" // p2 invicible
+//"00453FC0 19BC\n" // p2 hitlag
+//"00453FC0 23a0\n" // p2 hitstun
+//"00453FC0 2174\n" // p2 charging
+//"00453FC0 19C8\n" // p2 jumps
+//"00453FC0 140\n" // p2 grounded
+//"00453FC0 E0\n" // p2 xair
+//"00453FC0 E4\n" // p2 yair
+//"00453FC0 EC\n" // p2 xattackspd
+//"00453FC0 F0\n" // p2 yattackspd
+//"00453FC0 14C\n" // knockeddown
+//"003F0E0A\n" // p1 char
+//"003F0E2E\n" // p2 char
+//"004D6CAD\n" // stage selected
+//"00479D60\n" // still under investigation, but i think is repeated
 ;
-#pragma endregion UtilStrings
-
-std::string hotkey =
-"Keys/Load State Slot 1 = `Button R`";
 
 Config::Config(VsType vType)
 {
@@ -176,6 +143,17 @@ std::string Config::getPlayerPipeConfig(int player)
     return pipeOut;
 }
 
+int Config::getMemlocationLines(){
+    int lines = 0;
+    std::istringstream s(memlocation);
+    std::string temp;
+    while( std::getline(s, temp) )
+    {
+        lines++;
+    }
+    return lines;
+}
+
 std::string Config::getAIPipeConfig(int player, int pipe_count, std::string id)
 {
     printf("%s:%d\tCreating AI Player: %d\n", FILENM, __LINE__, player + 1);
@@ -188,20 +166,6 @@ std::string Config::getAIPipeConfig(int player, int pipe_count, std::string id)
         pipe_count);
     std::string pipeOut(buff);
     pipeOut += AIController;
-    return pipeOut;
-}
-
-std::string Config::getHotkeyINI(int player, int pipe_count, std::string id)
-{
-    printf("%s:%d\tCreating Hotkey INI on AI %d\n", FILENM, __LINE__, player + 1);
-    char buff[256];
-    sprintf(buff,
-        "[Hotkeys1]\nDevice = Pipe/%d/%s%d\n",
-        pipe_count,
-        id.c_str(),
-        pipe_count);
-    std::string pipeOut(buff);
-    pipeOut += hotkey;
     return pipeOut;
 }
 
