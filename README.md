@@ -23,8 +23,8 @@ conda update python
 conda update --all
 ```
 
-required Packages:
-tensorflow-gpu keras-gpu h5py zc.lockfile
+required Anaconda Packages:
+tensorflow-gpu keras-gpu h5py zc.lockfile gspread oauth2client
 
 Enviroment setup:
 ```
@@ -66,7 +66,9 @@ https://docs.nvidia.com/deeplearning/sdk/cudnn-install/index.html#install-window
 
 
 ## Build Instructions ##
-- Create a build folder in your prefered location
+Create a build folder in your prefered location. 
+If you have folders in your home directory, it would be HIGHLY advised to use the `-u` argument to designate a custom 
+user directory that can be used by the program. Otherwise there is a chance that your folders can be deleted.
 ```
 # IN CMD, in the root dir
 conda activate tf-gpu
@@ -74,15 +76,18 @@ bash
 mkdir build
 cmake ..
 make
-./SSBM
+./SSBM -gcm <path/to/ssbm.gcm>
 ```
 
 ### Arguments ###
 These are the main arguments used, more can be found by running with -h:
-`-vs human/self(h/s)` The play type used.
-`-pr <0|1|2|3>` Tensorflow load type: 0=Load Model 1=New Model 2=Prediction Only 3=New model+Prediction Only
-`-p <python_alias>` Specifies command to use then launching tensorflow/keras
-`-t #` The number of instances to run. This should only be used on CPU's with >=8 cores.
+```
+-vs human/self(h/s) The play type used.
+-gcm <path/to/ssbm.gcm> the location override for the super smash brothers melee iso/gcm
+-pr <0|1|2|3> Tensorflow load type: 0=Load Model 1=New Model 2=Prediction Only 3=New model+Prediction Only
+-p <python_alias> Specifies command to use then launching tensorflow/keras
+-t # The number of instances to run. This should only be used on CPU's with >=8 cores.
+```
 
 ## Overview ##
 We communicate with Dolphin in 2 ways:
