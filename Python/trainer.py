@@ -14,7 +14,7 @@ from collections import deque
 #import zc.lockfile as lf
 import numpy as np
 
-import gspread
+#import gspread
 #from oauth2client.service_account import ServiceAccountCredentials
 from time import sleep
 import random
